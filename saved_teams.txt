@@ -1,0 +1,6 @@
+1 (ant 12 4 6 none) (ant 3 4 2 none)
+3 (shrooms 12 4 6 none) (ant 3 4 2 none)
+2 (test 12 4 6 none) (ant 3 4 2 none)
+6 (yo 12 4 6 none) (ant 3 4 2 none)
+7 (hey 12 4 6 none) (ant 3 4 2 none)
+6 (bonjour 12 4 6 none) (ant 3 4 2 none)
