@@ -8,9 +8,11 @@ import subprocess
 
 
 DATA_FILE = "data.json"
+WRONG_COMMITS = ["Bus", "Boar", "Dromedary"]
 
 def download_img(data, path, img_size):
     source = data['image']['source']
+    commit = data['image']['commit']
     code = data['image']['unicodeCodePoint'][0]
     code = hex(ord(code))[2:]
     img_type = data['id'].split('-')[0]
@@ -18,21 +20,35 @@ def download_img(data, path, img_size):
         img_type += 's'
     dst_file = f"imgs/{img_type}/{data['name']}.png"
 
+    if data['name'] in WRONG_COMMITS:
+        git_dir = os.path.join(path, source)
+        git_cmd = ["git", "-C", git_dir, "switch", "--detach", commit]
+        subprocess.run(git_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     if source == "noto-emoji":
         file_name = f"emoji_u{code}.svg"
-        src_file = os.path.join(path, "noto-emoji/svg", file_name)
+        src_file = os.path.join(path, source, "svg", file_name)
 
     elif source == "fxemoji":
         file_name = f"u{code.upper()}-{data['image']['name']}.svg"
-        src_file = os.path.join(path, "fxemoji/svgs/FirefoxEmoji", file_name)
+        src_file = os.path.join(path, source, "svgs/FirefoxEmoji", file_name)
 
     elif source == "twemoji":
         file_name = f"{code}.svg"
-        src_file = os.path.join(path, "twemoji/assets/svg", file_name)
+        src_file = os.path.join(path, source, "assets/svg", file_name)
 
     print(f"Processing {data['name']} ({src_file} to {dst_file})")
-    subprocess.run(["convert", "-background", "none", "-size", f"{img_size}x{img_size}", src_file, dst_file])
+    # convert_cmd = ["convert", "-background", "none", "-size", f"{img_size}x{img_size}", src_file, dst_file]
+    branch_name = subprocess.run
+    convert_cmd = ["inkscape", "-w", str(img_size), "-h", str(img_size), src_file, "-o", dst_file]
+    subprocess.run(convert_cmd, stderr=subprocess.DEVNULL)
 
+    if data['name'] in WRONG_COMMITS:
+        git_cmd = ["git", "-C", git_dir, "branch", "--format=%(refname:short)"]
+        branches = subprocess.run(git_cmd, capture_output=True).stdout.decode().split('\n')[:-1]
+        branch_name = next(filter(lambda branch: 'detached' not in branch, branches))
+        git_cmd = ["git", "-C", git_dir, "switch", branch_name]
+        subprocess.run(git_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def download_imgs(file_name, path, img_size):
     with open(file_name, 'r') as file:
