@@ -88,12 +88,13 @@ def add_border(img, mask):
 
 def get_found_score(frame, img, mask):
     res = cv2.matchTemplate(frame, img, cv2.TM_SQDIFF, mask=mask)
+    nb_peaks = (res < 1.2*res.min()).sum()
     _, _, loc, _ = cv2.minMaxLoc(res)
     found_img = frame[loc[1]:loc[1]+img.shape[0], loc[0]:loc[0]+img.shape[1]]
 
-    close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 10)
+    close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 10) * mask
     score = 100 * close_pixels.sum() / mask.size
-    return score
+    return score, nb_peaks
 
 
 class TeamExtractor:
@@ -177,6 +178,7 @@ class TeamExtractor:
             pet_area = frame[yt:yb, xl:xr]
 
             # min_all_status = 1000000
+            # best_status, best_score = "", 0
             for status_name, (status_img, status_mask) in self.status_imgs.items():
                 # min_status = 1000000
                 # min_size = 0
@@ -184,8 +186,15 @@ class TeamExtractor:
                     resized_status_img = cv2.resize(status_img, (size, size))
                     resized_status_mask = (resized_status_img.sum(axis=2) != 0).astype(np.uint8)
 
-                    score = get_found_score(pet_area, resized_status_img, resized_status_mask)
-                    if score > 30:
+                    # if spot == 4 and status_name == "Honey Bee":
+                    #     breakpoint()
+                    score, nb_peaks = get_found_score(pet_area, resized_status_img, resized_status_mask)
+                    # print("HEY", spot, status_name, score)
+                    # if score > best_score:
+                    #     best_status = status_name
+                    #     best_score = score
+                    if score > 15 and nb_peaks < 30:
+                        # print("HEYYYYY", spot, status_name, score)
                         all_status.append(status_name)
                         break
 
@@ -195,6 +204,8 @@ class TeamExtractor:
 
             else:
                 all_status.append(None)
+            # breakpoint()
+            # all_status.append(best_status if best_score > 30 else None)
 
 
 #                     status_res = cv2.matchTemplate(pet_area, resized_status_img, cv2.TM_SQDIFF,
@@ -263,7 +274,7 @@ class TeamExtractor:
             # test = {}
             # yo = {}
             for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
-                scores[pet_name] = get_found_score(pet_area, pet_img, pet_mask)
+                scores[pet_name], _ = get_found_score(pet_area, pet_img, pet_mask)
                 # res = cv2.matchTemplate(pet_area, pet_img, cv2.TM_SQDIFF, mask=pet_mask)
                 # scores[pet_name] = (res <= 1.2*res.min()).sum()
                 # test[pet_name] = res
@@ -354,8 +365,8 @@ class TeamExtractor:
                 break
 
     def extract_all_teams(self):
-        # self.video.set(cv2.CAP_PROP_POS_FRAMES, 9000)
-        self.video.set(cv2.CAP_PROP_POS_FRAMES, 10500)
+        # self.video.set(cv2.CAP_PROP_POS_FRAMES, 2530)
+        # self.video.set(cv2.CAP_PROP_POS_FRAMES, 17800)
         frame = self.goto_next_battle()
         while frame is not None:
             print("Frame", self.video.get(cv2.CAP_PROP_POS_FRAMES))
