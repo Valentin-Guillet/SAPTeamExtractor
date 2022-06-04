@@ -18,9 +18,6 @@ def extend(coords, dx, dy=None):
     x, y = coords
     return (slice(x.start-dx, x.stop+dx), slice(y.start-dy, y.stop+dy))
 
-# COORDS_AUTOPLAY = (slice(20, 77), slice(329, 403))
-# COORDS_HOURGLASS = (slice(5, 35), slice(190, 220))
-
 COORDS_AUTOPLAY = (slice(58, 137), slice(674, 789))
 COORDS_AUTOPLAY_AREA = extend(COORDS_AUTOPLAY, 15)
 
@@ -165,9 +162,6 @@ class TeamExtractor:
 
             if grey_pixels >= 500:
                 spots.append(spot)
-            # show(frame[COORDS_ATTACK[spot]])
-            # breakpoint()
-            # show(cv2.Canny(frame[COORDS_ATTACK[spot]], 800, 1200))
         return spots
 
     def extract_status(self, frame, spots):
@@ -177,24 +171,13 @@ class TeamExtractor:
             yt, yb = COORDS_ATTACK[spot][0].start - 130, COORDS_ATTACK[spot][0].start - 3
             pet_area = frame[yt:yb, xl:xr]
 
-            # min_all_status = 1000000
-            # best_status, best_score = "", 0
             for status_name, (status_img, status_mask) in self.status_imgs.items():
-                # min_status = 1000000
-                # min_size = 0
                 for size in range(30, 50, 5):
                     resized_status_img = cv2.resize(status_img, (size, size))
                     resized_status_mask = (resized_status_img.sum(axis=2) != 0).astype(np.uint8)
 
-                    # if spot == 4 and status_name == "Honey Bee":
-                    #     breakpoint()
                     score, nb_peaks = get_found_score(pet_area, resized_status_img, resized_status_mask)
-                    # print("HEY", spot, status_name, score)
-                    # if score > best_score:
-                    #     best_status = status_name
-                    #     best_score = score
                     if score > 15 and nb_peaks < 30:
-                        # print("HEYYYYY", spot, status_name, score)
                         all_status.append(status_name)
                         break
 
@@ -204,64 +187,8 @@ class TeamExtractor:
 
             else:
                 all_status.append(None)
-            # breakpoint()
-            # all_status.append(best_status if best_score > 30 else None)
-
-
-#                     status_res = cv2.matchTemplate(pet_area, resized_status_img, cv2.TM_SQDIFF,
-#                                                    mask=resized_status_mask)
-#                     found = (status_res <= 1.2*status_res.min()).sum()
-#                     if found < min_status:
-#                         min_status = found
-#                         min_size = size
-
-#                 if min_status <= min_all_status:
-#                     min_all_status = min_status
-#                     status_found = status_name
-                    # size_found = min_size
-
-            # if spot == 3:
-            #     breakpoint()
-
-            # if min_all_status <= 5:
-                # print(f"Found {status_found} on spot {spot}")
-                # all_status.append(status_found)
-            # else:
-                # all_status.append(None)
-
-                # status_img, status_mask = self.status_imgs[status_found]
-                # resized_status_img = cv2.resize(status_img, (size_found, size_found))
-                # resized_status_mask = (resized_status_img.sum(axis=2) != 0).astype(np.uint8)
-                # status_res = cv2.matchTemplate(pet_area, resized_status_img, cv2.TM_SQDIFF,
-                #                                mask=resized_status_mask)
-                # threshold = 1.2*status_res.min()
-                # loc = np.where(status_res < threshold)
-
-                # h, w = resized_status_img.shape[:2]
-                # rectangles = [(x, y, x+w, y+h) for (y, x) in zip(*loc)]
-                # rectangles *= 2
-                # rectangles, _ = cv2.groupRectangles(rectangles, 1)
-
-                # all_status_masks[spot] = (resized_status_mask, rectangles)
-
-                # img = pet_area.copy()
-                # for (x, y, xw, yh) in rectangles:
-                #     cv2.rectangle(img, (x, y), (xw, yh), (0, 255, 0), 2)
-                # print([rect[0] for rect in rectangles])
-                # plt.imshow(img)
-                # plt.show()
 
         return all_status
-
-    # def extract_pet_from_frame(self, frame, pet_name):
-    #     pet_img, pet_mask = self.pet_imgs[pet_name]
-    #     res = cv2.matchTemplate(frame, pet_img, cv2.TM_SQDIFF, mask=pet_mask)
-    #     _, _, loc, _ = cv2.minMaxLoc(res)
-    #     found_pet = frame[loc[1]:loc[1]+pet_img.shape[0], loc[0]:loc[0]+pet_img.shape[1]]
-
-    #     close_pixels = (np.abs(found_pet.astype(np.int16) - pet_img).mean(axis=2) < 10)
-    #     percentage = close_pixels.sum() / pet_mask.size
-    #     return percentage
 
     def extract_pets(self, frame, spots, status):
         team = []
@@ -271,35 +198,11 @@ class TeamExtractor:
             pet_area = frame[yt:yb, xl:xr]
 
             scores = {}
-            # test = {}
-            # yo = {}
             for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
                 scores[pet_name], _ = get_found_score(pet_area, pet_img, pet_mask)
-                # res = cv2.matchTemplate(pet_area, pet_img, cv2.TM_SQDIFF, mask=pet_mask)
-                # scores[pet_name] = (res <= 1.2*res.min()).sum()
-                # test[pet_name] = res
 
-                # _, _, loc, _ = cv2.minMaxLoc(res)
-                # found_pet = pet_area[loc[1]:loc[1]+pet_img.shape[0], loc[0]:loc[0]+pet_img.shape[1]]
-
-                # close_pixels = (np.abs(found_pet.astype(np.int16) - pet_img).mean(axis=2) < 10)
-                # percentage = close_pixels.sum() / pet_mask.size
-                # scores[pet_name] = percentage
-
-            # print(sorted(scores.values(), reverse=True)[:10])
             team.append(max(scores, key=scores.get))
-            # print("Spot", spot, min(scores, key=scores.get))
-            # if spot == 3:
-            #     _, _, loc, _ = cv2.minMaxLoc(test['Fish'])
-            #     img = pet_area.copy()
-            #     fish_img, fish_mask = self.pet_imgs['Fish']
-            #     for i in range(fish_img.shape[0]):
-            #         for j in range(fish_img.shape[1]):
-            #             if fish_mask[i, j]:
-            #                 img[i+loc[1], j+loc[0]] = fish_img[i, j]
 
-            #     show(pet_area, img)
-            #     breakpoint()
         return team
 
     def extract_team(self, frame):
@@ -308,49 +211,12 @@ class TeamExtractor:
         pets = self.extract_pets(frame, spots, status)
         return pets, status
 
-    def _extract_pets(self, frame):
-        team = []
-        frame = frame[COORDS_TEAM]
-        print("Extracting frame ", self.video.get(cv2.CAP_PROP_POS_FRAMES))
-        for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
-            res = cv2.matchTemplate(frame, pet_img, cv2.TM_SQDIFF, mask=pet_mask)
-
-            if (res <= 1.2*res.min()).sum() >= 20:
-                continue
-
-            threshold = 1.2*res.min()
-            loc = np.where(res < threshold)
-
-            h, w = pet_img.shape[:2]
-            rectangles = [(x, y, x+w, y+h) for (y, x) in zip(*loc)]
-            rectangles *= 2
-            rectangles, _ = cv2.groupRectangles(rectangles, 1)
-
-            img = frame.copy()
-            print(pet_name, len(rectangles))
-            for (x, y, xw, yh) in rectangles:
-                cv2.rectangle(img, (x, y), (xw, yh), (0, 255, 0), 2)
-                # for i in range(x, xw):
-                #     for j in range(y, yh):
-                #         if pet_mask[j-y, i-x]:
-                #             img[j, i] = pet_img[j-y, i-x]
-            print([rect[0] for rect in rectangles])
-            plt.imshow(img)
-            plt.show()
-            for (x, y, xw, yh) in rectangles:
-                team.append((pet_name, x))
-
-        team.sort(key=lambda p: p[1])
-        team = list(map(lambda p: p[0], team))
-        return team
-
     def goto_next_battle(self):
         print("Looking for battle")
         while True:
             frame = self.get_frame()
             res = cv2.matchTemplate(frame[COORDS_AUTOPLAY_AREA], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
             if (res <= 1.2*res.min()).sum() <= 20:
-                # print(self.video.get(cv2.CAP_PROP_POS_FRAMES))
                 break
         return frame
 
@@ -361,12 +227,9 @@ class TeamExtractor:
             res = cv2.matchTemplate(frame[COORDS_HOURGLASS_AREA], self.hourglass, cv2.TM_SQDIFF)
             if (res <= 1.2*res.min()).sum() <= 20:
                 self.get_frame()   # Wait one frame to pass black screen
-                # show(frame)
                 break
 
     def extract_all_teams(self):
-        # self.video.set(cv2.CAP_PROP_POS_FRAMES, 2530)
-        # self.video.set(cv2.CAP_PROP_POS_FRAMES, 17800)
         frame = self.goto_next_battle()
         while frame is not None:
             print("Frame", self.video.get(cv2.CAP_PROP_POS_FRAMES))
@@ -374,7 +237,6 @@ class TeamExtractor:
             print("List of pets:", pets)
             print("List of status:", status)
             show(frame)
-            # breakpoint()
             self.goto_next_turn()
             frame = self.goto_next_battle()
 
