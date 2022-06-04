@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 
 import argparse
+import logging
+import multiprocessing
 import os
+
 import cv2
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from PIL import Image
 
@@ -28,6 +31,16 @@ COORDS_TEAM = (slice(430, 600), slice(660, 1275))
 COORDS_ATTACK = [(slice(546, 595), slice(670+120*i, 719+120*i)) for i in range(5)]
 COORDS_LIFE = [(slice(546, 595), slice(729+120*i, 778+120*i)) for i in range(5)]
 
+COORDS_PETS = [(slice(COORDS_LIFE[spot][0].start - 130, COORDS_LIFE[spot][0].start - 3),
+                slice(COORDS_ATTACK[spot][1].start - 8, COORDS_LIFE[spot][1].stop + 8))
+               for spot in range(5)]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('path', type=str, help="Path to the video to process")
+    parser.add_argument('-n', '--nb_workers', type=int, help="Number of workers to run in parallel")
+    return parser.parse_args()
 
 def show(*imgs):
     fig, axes = plt.subplots(1, len(imgs), squeeze=False)
@@ -98,11 +111,17 @@ class TeamExtractor:
 
     def __init__(self, video_file):
         self.video_file = video_file
-        self.video = cv2.VideoCapture(video_file)
+        self.video_length = int(cv2.VideoCapture(video_file).get(cv2.CAP_PROP_FRAME_COUNT))
 
         self._load_pets()
         self._load_status()
         self._load_assets()
+
+        self.queue = multiprocessing.Queue()
+
+        self.logger = logging.getLogger('main')
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(logging.StreamHandler())
 
     def _load_pets(self):
         self.pet_imgs = {}
@@ -143,12 +162,12 @@ class TeamExtractor:
         self.hourglass = cv2.imread("assets/hourglass_icon.png")
         self.hourglass = cv2.cvtColor(self.hourglass, cv2.COLOR_BGR2RGB)
 
-    def get_frame(self, frame_id=None):
+    def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
-            self.video.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
-        ret, frame = self.video.read()
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
+        ret, frame = capture.read()
         if not ret:
-            raise Exception("Couldn't read frame")
+            return None
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
@@ -166,11 +185,12 @@ class TeamExtractor:
 
     def extract_status(self, frame, spots):
         all_status = []
-        for spot in spots:
-            xl, xr = COORDS_ATTACK[spot][1].start - 8, COORDS_LIFE[spot][1].stop + 8
-            yt, yb = COORDS_ATTACK[spot][0].start - 130, COORDS_ATTACK[spot][0].start - 3
-            pet_area = frame[yt:yb, xl:xr]
+        for spot in range(5):
+            if spot not in spots:
+                all_status.append(None)
+                continue
 
+            pet_area = frame[COORDS_PETS[spot]]
             for status_name, (status_img, status_mask) in self.status_imgs.items():
                 for size in range(30, 50, 5):
                     resized_status_img = cv2.resize(status_img, (size, size))
@@ -186,17 +206,18 @@ class TeamExtractor:
                 break
 
             else:
-                all_status.append(None)
+                all_status.append("Nothing")
 
         return all_status
 
     def extract_pets(self, frame, spots, status):
         team = []
-        for spot in spots:
-            xl, xr = COORDS_ATTACK[spot][1].start - 8, COORDS_LIFE[spot][1].stop + 8
-            yt, yb = COORDS_ATTACK[spot][0].start - 130, COORDS_ATTACK[spot][0].start - 3
-            pet_area = frame[yt:yb, xl:xr]
+        for spot in range(5):
+            if spot not in spots:
+                team.append(None)
+                continue
 
+            pet_area = frame[COORDS_PETS[spot]]
             scores = {}
             for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
                 scores[pet_name], _ = get_found_score(pet_area, pet_img, pet_mask)
@@ -211,43 +232,119 @@ class TeamExtractor:
         pets = self.extract_pets(frame, spots, status)
         return pets, status
 
-    def goto_next_battle(self):
-        print("Looking for battle")
+    def goto_next_battle(self, capture):
         while True:
-            frame = self.get_frame()
+            frame = self.get_frame(capture)
+            if frame is None:
+                return None, -1
+
             res = cv2.matchTemplate(frame[COORDS_AUTOPLAY_AREA], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
             if (res <= 1.2*res.min()).sum() <= 20:
                 break
-        return frame
 
-    def goto_next_turn(self):
-        print("Looking for new turn")
+        frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
+        return frame, frame_nb
+
+    def goto_next_turn(self, capture):
         while True:
-            frame = self.get_frame()
+            frame = self.get_frame(capture)
+            if frame is None:
+                return
+
             res = cv2.matchTemplate(frame[COORDS_HOURGLASS_AREA], self.hourglass, cv2.TM_SQDIFF)
             if (res <= 1.2*res.min()).sum() <= 20:
-                self.get_frame()   # Wait one frame to pass black screen
+                self.get_frame(capture)   # Wait one frame to pass black screen
                 break
 
-    def extract_all_teams(self):
-        frame = self.goto_next_battle()
-        while frame is not None:
-            print("Frame", self.video.get(cv2.CAP_PROP_POS_FRAMES))
-            pets, status = self.extract_team(frame)
-            print("List of pets:", pets)
-            print("List of status:", status)
-            show(frame)
-            self.goto_next_turn()
-            frame = self.goto_next_battle()
+    def find_battles(self, worker_id, init_frame, end_frame):
+        self.logger.info(f"[WORKER {worker_id}] Running between frames {init_frame} and {end_frame}")
+        capture = cv2.VideoCapture(self.video_file)
+        capture.set(cv2.CAP_PROP_POS_FRAMES, init_frame)
 
-        self.video.release()
+        # If in battle, skip it
+        frame = self.get_frame(capture)
+        res = cv2.matchTemplate(frame[COORDS_AUTOPLAY_AREA], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
+        if (res <= 1.2*res.min()).sum() <= 20:
+            self.logger.info(f"[WORKER {worker_id}] Starting in the middle of a battle ! Skipping...")
+            self.goto_next_turn(capture)
+
+        frame, frame_nb = self.goto_next_battle(capture)
+        while frame is not None and frame_nb < end_frame:
+            self.logger.info(f"[WORKER {worker_id}] Battle found ! Putting in queue")
+            self.queue.put(frame)
+            self.goto_next_turn(capture)
+            frame, frame_nb = self.goto_next_battle(capture)
+
+        self.logger.info(f"[WORKER {worker_id}] Done !")
+        self.queue.put(worker_id)
+        capture.release()
+
+    def extract_teams(self, nb_workers):
+        self.logger.info("[EXTRACTOR] Initializing")
+        workers_done = []
+        frame = self.queue.get()
+        while type(frame) is int:
+            workers_done.append(frame)
+            frame = self.queue.get()
+
+        while len(workers_done) < nb_workers:
+            self.logger.info("[EXTRACTOR] Processing frame")
+            pets, status = self.extract_team(frame)
+
+            self.logger.info("[EXTRACTOR] List of pets:" + str(pets))
+            self.logger.info("[EXTRACTOR] List of status:" + str(status))
+            frame = self.queue.get()
+            while type(frame) is int:
+                self.logger.info(f"[EXTRACTOR] Worker {frame} done")
+                workers_done.append(frame)
+                if len(workers_done) < nb_workers:
+                    frame = self.queue.get()
+                else:
+                    break
+
+        self.logger.info("[EXTRACTOR] Extractor done !")
+
+    def run_sync(self):
+        capture = cv2.VideoCapture(self.video_file)
+        capture.set(cv2.CAP_PROP_POS_FRAMES, 2530)
+        frame, frame_nb = self.goto_next_battle(capture)
+        while frame is not None:
+            self.logger.info(f"Frame {frame_nb}: battle found")
+            pets, status = self.extract_team(frame)
+
+            self.logger.info("List of pets:" + str(pets))
+            self.logger.info("List of status:" + str(status))
+            self.goto_next_turn(capture)
+            show(frame)
+            frame, frame_nb = self.goto_next_battle(capture)
+
+        capture.release()
+
+    def run(self, nb_workers=5):
+        if nb_workers == 1:
+            self.run_sync()
+            return
+
+        frame_limits = [(i*self.video_length) // nb_workers for i in range(nb_workers+1)]
+
+        battle_finders = []
+        for i in range(nb_workers):
+            proc = multiprocessing.Process(target=self.find_battles, args=(i, *frame_limits[i:i+2]))
+            battle_finders.append(proc)
+
+        team_extractor = multiprocessing.Process(target=self.extract_teams, args=(nb_workers, ))
+
+        for proc in battle_finders:
+            proc.start()
+        team_extractor.start()
+
+        for proc in battle_finders:
+            proc.join()
+        team_extractor.join()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="Path to the video to process")
-    args = parser.parse_args()
-
+    args = parse_args()
     team_extractor = TeamExtractor(args.path)
-    team_extractor.extract_all_teams()
+    team_extractor.run(nb_workers=args.nb_workers)
 
