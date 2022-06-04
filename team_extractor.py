@@ -162,6 +162,22 @@ class TeamExtractor:
         self.hourglass = cv2.imread("assets/hourglass_icon.png")
         self.hourglass = cv2.cvtColor(self.hourglass, cv2.COLOR_BGR2RGB)
 
+    def _load_whole_pets(self):
+        self.whole_pet_imgs = {}
+        for file in os.listdir("imgs/pets"):
+            pet_name = file[:-4]
+            img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
+            if img.dtype == 'uint16':
+                img = (img // 256).astype(np.uint8)
+            mask = img[:, :, 3] > 0
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img *= mask[:, :, np.newaxis]
+
+            img = cv2.resize(img, (PET_SIZE, PET_SIZE))
+            mask = (img.sum(axis=2) != 0).astype(np.uint8)
+
+            self.whole_pet_imgs[pet_name] = (img, mask)
+
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
             capture.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
@@ -279,6 +295,45 @@ class TeamExtractor:
         self.queue.put(worker_id)
         capture.release()
 
+    def save_team(self, frame, pets, status):
+        if not hasattr(self, "whole_pet_imgs"):
+            self.nb_team_saved = 1
+            video_name = os.path.splitext(os.path.basename(self.video_file))[0]
+            self.team_dir = os.path.join("checks", video_name)
+            if not os.path.isdir(self.team_dir):
+                os.makedirs(self.team_dir, exist_ok=True)
+            self._load_whole_pets()
+
+        team_img = frame[COORDS_TEAM]
+        shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
+        visu = 255 * np.ones(shape, np.uint8)
+        for i in range(5):
+            if pets[i] is None:
+                continue
+            pet_img, pet_mask = self.whole_pet_imgs[pets[i]]
+            if status[i] != 'Nothing':
+                status_img, status_mask = self.status_imgs[status[i]]
+
+            h, w = pet_img.shape[:2]
+            yt, xl = 5, 15 + 120*i
+            yb, xr = yt + h, xl + w
+            visu[yt:yb, xl:xr] = np.maximum(pet_img, 255 * (1 - pet_mask)[..., np.newaxis])
+
+            if status[i] != 'Nothing':
+                h, w = status_img.shape[:2]
+                yt, xl = yb + 15, 40 + 120*i
+                yb, xr = yt + h, xl + w
+                visu[yt:yb, xl:xr] = np.maximum(status_img, 255 * (1 - status_mask)[..., np.newaxis])
+
+        fig, axes = plt.subplots(2)
+        axes[0].imshow(team_img)
+        axes[1].imshow(visu)
+
+        axes[0].axis('off')
+        axes[1].axis('off')
+        fig.savefig(os.path.join(self.team_dir, f"team_{self.nb_team_saved:02}.png"))
+        self.nb_team_saved += 1
+
     def extract_teams(self, nb_workers):
         self.logger.info("[EXTRACTOR] Initializing")
         workers_done = []
@@ -290,6 +345,7 @@ class TeamExtractor:
         while len(workers_done) < nb_workers:
             self.logger.info("[EXTRACTOR] Processing frame")
             pets, status = self.extract_team(frame)
+            self.save_team(frame, pets, status)
 
             self.logger.info("[EXTRACTOR] List of pets:" + str(pets))
             self.logger.info("[EXTRACTOR] List of status:" + str(status))
@@ -306,16 +362,13 @@ class TeamExtractor:
 
     def run_sync(self):
         capture = cv2.VideoCapture(self.video_file)
-        capture.set(cv2.CAP_PROP_POS_FRAMES, 2530)
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
             pets, status = self.extract_team(frame)
+            self.save_team(frame, pets, status)
 
-            self.logger.info("List of pets:" + str(pets))
-            self.logger.info("List of status:" + str(status))
             self.goto_next_turn(capture)
-            show(frame)
             frame, frame_nb = self.goto_next_battle(capture)
 
         capture.release()
