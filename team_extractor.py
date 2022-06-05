@@ -15,32 +15,18 @@ from PIL import Image
 PET_SIZE = 100
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('path', type=str, help="Path to the video to process")
+    parser.add_argument('-o', '--output', default=None, type=str, help="Dir in which to save output")
+    parser.add_argument('-n', '--nb_workers', type=int, help="Number of workers to run in parallel")
+    return parser.parse_args()
+
 def extend(coords, dx, dy=None):
     if dy is None:
         dy = dx
     x, y = coords
     return (slice(x.start-dx, x.stop+dx), slice(y.start-dy, y.stop+dy))
-
-COORDS_AUTOPLAY = (slice(58, 137), slice(674, 789))
-COORDS_AUTOPLAY_AREA = extend(COORDS_AUTOPLAY, 15)
-
-COORDS_HOURGLASS = (slice(25, 56), slice(401, 423))
-COORDS_HOURGLASS_AREA = extend(COORDS_HOURGLASS, 15)
-
-COORDS_TEAM = (slice(430, 600), slice(660, 1275))
-COORDS_ATTACK = [(slice(546, 595), slice(670+120*i, 719+120*i)) for i in range(5)]
-COORDS_LIFE = [(slice(546, 595), slice(729+120*i, 778+120*i)) for i in range(5)]
-
-COORDS_PETS = [(slice(COORDS_LIFE[spot][0].start - 130, COORDS_LIFE[spot][0].start - 3),
-                slice(COORDS_ATTACK[spot][1].start - 8, COORDS_LIFE[spot][1].stop + 8))
-               for spot in range(5)]
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="Path to the video to process")
-    parser.add_argument('-n', '--nb_workers', type=int, help="Number of workers to run in parallel")
-    return parser.parse_args()
 
 def show(*imgs):
     fig, axes = plt.subplots(1, len(imgs), squeeze=False)
@@ -53,7 +39,7 @@ def show(*imgs):
 
 def save_autoplay_icon(frame):
     # From frame 2800
-    autoplay = frame[COORDS_AUTOPLAY_AREA]
+    autoplay = frame[TeamExtractor.COORDS["autoplay_area"]]
     contour = cv2.Canny(autoplay, 100, 200)
     h, w = contour.shape
     tmp_mask = np.zeros((h+2, w+2), np.uint8)
@@ -82,19 +68,20 @@ def save_autoplay_icon(frame):
     img = Image.fromarray(autoplay)
     img.save("assets/autoplay_icon.png")
 
-def add_border(img, mask):
-    mask_copy = mask.copy()
-    for i in range(PET_SIZE):
-        for j in range(PET_SIZE):
-            if mask[i, j]:
-                continue
-            if (0 < i and mask[i-1, j] or
-                    i < PET_SIZE-1 and mask[i+1, j] or
-                    0 < j and mask[i, j-1] or
-                    j < PET_SIZE-1 and mask[i, j+1]):
-                img[i, j] = (255, 255, 255)
-                mask_copy[i, j] = True
-    return img, mask_copy
+def save_lvl_icon(frame):
+    # Save LVL writing from spot 2 on frame
+    coords_lvl = (slice(414, 436), slice(976, 1004))
+    lvl_icon = frame[coords_lvl]
+
+    os.makedirs("assets", exist_ok=True)
+    img = Image.fromarray(lvl_icon)
+    img.save("assets/lvl_icon.png")
+
+def save_xp_icon(frame):
+    # Save XP bar icon from frame where team is low (before SAP update) on spot 2
+    coords_xp_2 = (slice(469, 485), slice(974, 1024))
+    xp_bar = frame[coords_xp_2]
+
 
 def get_found_score(frame, img, mask):
     res = cv2.matchTemplate(frame, img, cv2.TM_SQDIFF, mask=mask)
@@ -109,9 +96,31 @@ def get_found_score(frame, img, mask):
 
 class TeamExtractor:
 
-    def __init__(self, video_file):
+    COORDS = {"autoplay": (slice(58, 137), slice(674, 789)),
+              "hourglass": (slice(25, 56), slice(401, 423)),
+            }
+
+    COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
+    COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
+
+    COORDS["attack"] = []
+    COORDS["life"] = []
+    COORDS["pets"] = []
+
+    @classmethod
+    def _update_coords(cls, height):
+        cls.COORDS["team"] = (slice(height, height+210), slice(660, 1275))
+
+        h = height
+        for i in range(5):
+            cls.COORDS["attack"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
+            cls.COORDS["life"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
+            cls.COORDS["pets"].append((slice(h+22, h+149), slice(662+120*i, 786+120*i)))
+
+    def __init__(self, video_file, output_path):
         self.video_file = video_file
         self.video_length = int(cv2.VideoCapture(video_file).get(cv2.CAP_PROP_FRAME_COUNT))
+        self.output_path = output_path
 
         self._load_pets()
         self._load_status()
@@ -122,6 +131,8 @@ class TeamExtractor:
         self.logger = logging.getLogger('main')
         self.logger.setLevel(logging.INFO)
         self.logger.addHandler(logging.StreamHandler())
+
+        self.team_extracted = 0
 
     def _load_pets(self):
         self.pet_imgs = {}
@@ -162,6 +173,15 @@ class TeamExtractor:
         self.hourglass = cv2.imread("assets/hourglass_icon.png")
         self.hourglass = cv2.cvtColor(self.hourglass, cv2.COLOR_BGR2RGB)
 
+        self.lvl = cv2.imread("assets/lvl_icon.png")
+        self.lvl = cv2.cvtColor(self.lvl, cv2.COLOR_BGR2RGB)
+
+        self.xp_bars = []
+        for i in range(len(os.listdir("assets/XP/"))):
+            xp_bar = cv2.imread("assets/XP/xp_icon_0.png")
+            xp_bar = cv2.cvtColor(xp_bar, cv2.COLOR_BGR2RGB)
+            self.xp_bars.append(xp_bar)
+
     def _load_whole_pets(self):
         self.whole_pet_imgs = {}
         for file in os.listdir("imgs/pets"):
@@ -188,10 +208,15 @@ class TeamExtractor:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
 
+    def get_team_height(self, frame):
+        res = cv2.matchTemplate(frame, self.lvl, cv2.TM_SQDIFF)
+        _, _, loc, _ = cv2.minMaxLoc(res)
+        return loc[1] - 20
+
     def find_spots(self, frame):
         spots = []
         for spot in range(5):
-            attack = frame[COORDS_ATTACK[spot]]
+            attack = frame[self.COORDS["attack"][spot]]
             m = np.repeat(attack.mean(axis=2)[..., np.newaxis], 3, axis=2)
             grey_pixels = (np.abs(m - attack).sum(axis=2) <= 20).sum()
 
@@ -206,9 +231,9 @@ class TeamExtractor:
                 all_status.append(None)
                 continue
 
-            pet_area = frame[COORDS_PETS[spot]]
+            pet_area = frame[self.COORDS["pets"][spot]]
             for status_name, (status_img, status_mask) in self.status_imgs.items():
-                for size in range(30, 50, 5):
+                for size in range(25, 50, 5):
                     resized_status_img = cv2.resize(status_img, (size, size))
                     resized_status_mask = (resized_status_img.sum(axis=2) != 0).astype(np.uint8)
 
@@ -233,7 +258,7 @@ class TeamExtractor:
                 team.append(None)
                 continue
 
-            pet_area = frame[COORDS_PETS[spot]]
+            pet_area = frame[self.COORDS["pets"][spot]]
             scores = {}
             for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
                 scores[pet_name], _ = get_found_score(pet_area, pet_img, pet_mask)
@@ -243,9 +268,14 @@ class TeamExtractor:
         return team
 
     def extract_team(self, frame):
+        if self.team_extracted == 0:
+            team_height = self.get_team_height(frame)
+            self._update_coords(team_height)
+
         spots = self.find_spots(frame)
         status = self.extract_status(frame, spots)
         pets = self.extract_pets(frame, spots, status)
+        self.team_extracted += 1
         return pets, status
 
     def goto_next_battle(self, capture):
@@ -254,7 +284,7 @@ class TeamExtractor:
             if frame is None:
                 return None, -1
 
-            res = cv2.matchTemplate(frame[COORDS_AUTOPLAY_AREA], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
+            res = cv2.matchTemplate(frame[self.COORDS["autoplay_area"]], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
             if (res <= 1.2*res.min()).sum() <= 20:
                 break
 
@@ -267,7 +297,7 @@ class TeamExtractor:
             if frame is None:
                 return
 
-            res = cv2.matchTemplate(frame[COORDS_HOURGLASS_AREA], self.hourglass, cv2.TM_SQDIFF)
+            res = cv2.matchTemplate(frame[self.COORDS["hourglass_area"]], self.hourglass, cv2.TM_SQDIFF)
             if (res <= 1.2*res.min()).sum() <= 20:
                 self.get_frame(capture)   # Wait one frame to pass black screen
                 break
@@ -279,7 +309,7 @@ class TeamExtractor:
 
         # If in battle, skip it
         frame = self.get_frame(capture)
-        res = cv2.matchTemplate(frame[COORDS_AUTOPLAY_AREA], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
+        res = cv2.matchTemplate(frame[self.COORDS["autoplay_area"]], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
         if (res <= 1.2*res.min()).sum() <= 20:
             self.logger.info(f"[WORKER {worker_id}] Starting in the middle of a battle ! Skipping...")
             self.goto_next_turn(capture)
@@ -287,24 +317,20 @@ class TeamExtractor:
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None and frame_nb < end_frame:
             self.logger.info(f"[WORKER {worker_id}] Battle found ! Putting in queue")
-            self.queue.put(frame)
+            self.queue.put((frame, frame_nb))
             self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
         self.logger.info(f"[WORKER {worker_id}] Done !")
-        self.queue.put(worker_id)
+        self.queue.put((worker_id, -1))
         capture.release()
 
-    def save_team(self, frame, pets, status):
+    def save_team(self, frame, pets, status, frame_nb):
         if not hasattr(self, "whole_pet_imgs"):
-            self.nb_team_saved = 1
             video_name = os.path.splitext(os.path.basename(self.video_file))[0]
-            self.team_dir = os.path.join("checks", video_name)
-            if not os.path.isdir(self.team_dir):
-                os.makedirs(self.team_dir, exist_ok=True)
             self._load_whole_pets()
 
-        team_img = frame[COORDS_TEAM]
+        team_img = frame[self.COORDS["team"]]
         shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
         for i in range(5):
@@ -325,36 +351,36 @@ class TeamExtractor:
                 yb, xr = yt + h, xl + w
                 visu[yt:yb, xl:xr] = np.maximum(status_img, 255 * (1 - status_mask)[..., np.newaxis])
 
-        fig, axes = plt.subplots(2)
+        fig = plt.figure("main")
+        axes = fig.subplots(2)
         axes[0].imshow(team_img)
         axes[1].imshow(visu)
 
         axes[0].axis('off')
         axes[1].axis('off')
-        fig.savefig(os.path.join(self.team_dir, f"team_{self.nb_team_saved:02}.png"))
-        self.nb_team_saved += 1
+        fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
     def extract_teams(self, nb_workers):
         self.logger.info("[EXTRACTOR] Initializing")
         workers_done = []
-        frame = self.queue.get()
+        frame, frame_nb = self.queue.get()
         while type(frame) is int:
             workers_done.append(frame)
-            frame = self.queue.get()
+            frame, frame_nb = self.queue.get()
 
         while len(workers_done) < nb_workers:
             self.logger.info("[EXTRACTOR] Processing frame")
             pets, status = self.extract_team(frame)
-            self.save_team(frame, pets, status)
+            self.save_team(frame, pets, status, frame_nb)
 
             self.logger.info("[EXTRACTOR] List of pets:" + str(pets))
             self.logger.info("[EXTRACTOR] List of status:" + str(status))
-            frame = self.queue.get()
+            frame, frame_nb = self.queue.get()
             while type(frame) is int:
                 self.logger.info(f"[EXTRACTOR] Worker {frame} done")
                 workers_done.append(frame)
                 if len(workers_done) < nb_workers:
-                    frame = self.queue.get()
+                    frame, frame_nb = self.queue.get()
                 else:
                     break
 
@@ -366,14 +392,14 @@ class TeamExtractor:
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
             pets, status = self.extract_team(frame)
-            self.save_team(frame, pets, status)
+            self.save_team(frame, pets, status, frame_nb)
 
             self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
         capture.release()
 
-    def run(self, nb_workers=5):
+    def run(self, nb_workers=2):
         if nb_workers == 1:
             self.run_sync()
             return
@@ -398,6 +424,8 @@ class TeamExtractor:
 
 if __name__ == '__main__':
     args = parse_args()
-    team_extractor = TeamExtractor(args.path)
+    if args.output is None:
+        args.output = os.path.dirname(args.path)
+    team_extractor = TeamExtractor(args.path, args.output)
     team_extractor.run(nb_workers=args.nb_workers)
 
