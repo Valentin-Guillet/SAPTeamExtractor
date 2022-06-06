@@ -196,7 +196,7 @@ class TeamExtractor:
         self.team_extracted = 0
 
     def _load_pets(self):
-        self.pet_imgs = {}
+        self.pets = {}
         for file in os.listdir("imgs/pets"):
             pet_name = file[:-4]
             img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
@@ -205,11 +205,20 @@ class TeamExtractor:
             mask = img[:, :, 3] > 0
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
-            img = cv2.resize(img, (PET_SIZE, PET_SIZE))[30:, :]
-            self.pet_imgs[pet_name] = ImgStruct(img)
+
+            # Remove the head position from the mask to account for hats
+            if pet_name == "Mosquito":
+                # Mosquito has the hat very low, remove the precise area
+                img[30:75, 20:80] = 0
+                img = cv2.resize(img, (PET_SIZE, PET_SIZE))
+            else:
+                # Other pets just have the hat on top of them: mask the first rows
+                img = cv2.resize(img, (PET_SIZE, PET_SIZE))[30:, :]
+
+            self.pets[pet_name] = ImgStruct(img)
 
     def _load_status(self):
-        self.status_imgs = {}
+        self.status = {}
         for file in os.listdir("imgs/status"):
             status_name = file[:-4]
             img = cv2.imread(f"imgs/status/{file}", cv2.IMREAD_UNCHANGED)
@@ -219,7 +228,7 @@ class TeamExtractor:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
             img = cv2.resize(img, (PET_SIZE // 2, PET_SIZE // 2))
-            self.status_imgs[status_name] = ImgStruct(img)
+            self.status[status_name] = ImgStruct(img)
 
     def _load_assets(self):
         self.autoplay = cv2.imread("assets/autoplay_icon.png", cv2.IMREAD_UNCHANGED)
@@ -296,7 +305,7 @@ class TeamExtractor:
 
             pet_area = frame[self.COORDS["pets"][spot]]
             scores = {}
-            for pet_name, pet in self.pet_imgs.items():
+            for pet_name, pet in self.pets.items():
                 scores[pet_name] = self.get_pet_score(pet_area, pet)
 
             team.append(max(scores, key=scores.get))
@@ -321,7 +330,6 @@ class TeamExtractor:
         found_contours = cv2.Canny(found_img, 400, 800).view(np.bool_)
         contours_score = [100 * (contours * found_contours).sum() / size
                           for (contours, size) in zip(*status.get_contours())]
-        # breakpoint()
         best_contours_score = max(contours_score)
 
         return closeness_score, nb_peaks, best_contours_score
@@ -334,7 +342,7 @@ class TeamExtractor:
                 continue
 
             pet_area = frame[self.COORDS["pets"][spot]]
-            for status_name, status in self.status_imgs.items():
+            for status_name, status in self.status.items():
                 for size in range(25, 50, 5):
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
@@ -422,7 +430,7 @@ class TeamExtractor:
                 continue
             pet = self.whole_pet_imgs[pet_names[i]]
             if status_names[i] != 'Nothing':
-                status = self.status_imgs[status_names[i]]
+                status = self.status[status_names[i]]
 
             h, w = pet.shape[:2]
             yt, xl = 5, 15 + 120*i
