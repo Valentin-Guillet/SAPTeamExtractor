@@ -7,6 +7,7 @@ import os
 
 import cv2
 import matplotlib.pyplot as plt
+import matplotlib.widgets as wdg
 import numpy as np
 
 from PIL import Image
@@ -31,6 +32,7 @@ def extend(coords, dx, dy=None):
 def show(*imgs):
     fig, axes = plt.subplots(1, len(imgs), squeeze=False)
     for ax, img in zip(axes[0], imgs):
+        ax.axis('off')
         if img.shape[-1] == 3:
             ax.imshow(img)
         else:
@@ -82,16 +84,75 @@ def save_xp_icon(frame):
     coords_xp_2 = (slice(469, 485), slice(974, 1024))
     xp_bar = frame[coords_xp_2]
 
+def search_canny(img, init_min=400, init_max=800):
+    fig = plt.figure("canny_search")
+    ax = fig.subplots()
+    ax.imshow(cv2.Canny(img, init_min, init_max), cmap='gray')
 
-def get_found_score(frame, img, mask):
-    res = cv2.matchTemplate(frame, img, cv2.TM_SQDIFF, mask=mask)
-    nb_peaks = (res < 1.2*res.min()).sum()
-    _, _, loc, _ = cv2.minMaxLoc(res)
-    found_img = frame[loc[1]:loc[1]+img.shape[0], loc[0]:loc[0]+img.shape[1]]
+    axmin = fig.add_axes([0.25, 0.05, 0.65, 0.03])
+    axmax = fig.add_axes([0.25, 0.01, 0.65, 0.03])
+    slider_min = wdg.Slider(ax=axmin, label='Min value', valmin=50, valmax=1500, valinit=init_min, valstep=50)
+    slider_max = wdg.Slider(ax=axmax, label='Max value', valmin=50, valmax=1500, valinit=init_max, valstep=50)
 
-    close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 10) * mask
-    score = 100 * close_pixels.sum() / mask.size
-    return score, nb_peaks
+    def update(val):
+        ax.cla()
+        ax.imshow(cv2.Canny(img, slider_min.val, slider_max.val), cmap='gray')
+        fig.canvas.draw()
+
+    slider_min.on_changed(update)
+    slider_max.on_changed(update)
+    plt.show()
+
+
+class ImgStruct:
+    def __init__(self, img):
+        mask = (img.sum(axis=2) != 0).astype(np.uint8)
+        self.shape = img.shape[:2]
+        self.init_shape = self.shape
+
+        self.resized_imgs = {self.shape: img}
+        self.resized_masks = {self.shape: mask}
+        self.contours = {}
+
+    @property
+    def height(self):
+        return self.shape[0]
+
+    @property
+    def width(self):
+        return self.shape[1]
+
+    @property
+    def img(self):
+        return self.resized_imgs[self.shape]
+
+    @property
+    def mask(self):
+        return self.resized_masks[self.shape]
+
+    def resize(self, new_shape):
+        if new_shape not in self.resized_imgs:
+            resized_img = cv2.resize(self.resized_imgs[self.init_shape], new_shape)
+            self.resized_imgs[new_shape] = resized_img
+            self.resized_masks[new_shape] = (resized_img.sum(axis=2) != 0).astype(np.uint8)
+
+        self.shape = new_shape
+
+    def _compute_contours(self):
+        h, w = self.shape[:2]
+        contours = np.zeros((h+2, w+2), dtype=np.bool_)
+        contours[1:h+1, 1:w+1] = cv2.Canny(self.img, 400, 800)
+
+        all_contours = [contours[1:h+1, 1:w+1], contours[:h, 1:w+1], contours[2:, 1:w+1],
+                        contours[1:h+1, :w], contours[1:h+1, 2:]]
+        all_nb_pixels = [(contour != 0).sum() for contour in all_contours]
+
+        return all_contours, all_nb_pixels
+
+    def get_contours(self):
+        if self.shape not in self.contours:
+            self.contours[self.shape] = self._compute_contours()
+        return self.contours[self.shape]
 
 
 class TeamExtractor:
@@ -144,11 +205,8 @@ class TeamExtractor:
             mask = img[:, :, 3] > 0
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
-
             img = cv2.resize(img, (PET_SIZE, PET_SIZE))[30:, :]
-            mask = (img.sum(axis=2) != 0).astype(np.uint8)
-
-            self.pet_imgs[pet_name] = (img, mask)
+            self.pet_imgs[pet_name] = ImgStruct(img)
 
     def _load_status(self):
         self.status_imgs = {}
@@ -161,9 +219,7 @@ class TeamExtractor:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
             img = cv2.resize(img, (PET_SIZE // 2, PET_SIZE // 2))
-            mask = (img.sum(axis=2) != 0).astype(np.uint8)
-
-            self.status_imgs[status_name] = (img, mask)
+            self.status_imgs[status_name] = ImgStruct(img)
 
     def _load_assets(self):
         self.autoplay = cv2.imread("assets/autoplay_icon.png", cv2.IMREAD_UNCHANGED)
@@ -192,11 +248,8 @@ class TeamExtractor:
             mask = img[:, :, 3] > 0
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
-
             img = cv2.resize(img, (PET_SIZE, PET_SIZE))
-            mask = (img.sum(axis=2) != 0).astype(np.uint8)
-
-            self.whole_pet_imgs[pet_name] = (img, mask)
+            self.whole_pet_imgs[pet_name] = ImgStruct(img)
 
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
@@ -224,7 +277,56 @@ class TeamExtractor:
                 spots.append(spot)
         return spots
 
-    def extract_status(self, frame, spots):
+    def get_pet_score(self, frame, pet):
+        res = cv2.matchTemplate(frame, pet.img, cv2.TM_SQDIFF, mask=pet.mask)
+        _, _, loc, _ = cv2.minMaxLoc(res)
+        found_img = frame[loc[1]:loc[1]+pet.shape[0], loc[0]:loc[0]+pet.shape[1]]
+
+        close_pixels = (np.abs(found_img.astype(np.int16) - pet.img).mean(axis=2) < 12) * pet.mask
+        score = 100 * close_pixels.sum() / pet.mask.size
+
+        return score
+
+    def extract_pets(self, frame, spots):
+        team = []
+        for spot in range(5):
+            if spot not in spots:
+                team.append(None)
+                continue
+
+            pet_area = frame[self.COORDS["pets"][spot]]
+            scores = {}
+            for pet_name, pet in self.pet_imgs.items():
+                scores[pet_name] = self.get_pet_score(pet_area, pet)
+
+            team.append(max(scores, key=scores.get))
+
+        return team
+
+    def get_status_score(self, frame, status, shape):
+        status.resize(shape)
+        res = cv2.matchTemplate(frame, status.img, cv2.TM_SQDIFF, mask=status.mask)
+        _, _, loc, _ = cv2.minMaxLoc(res)
+        found_img = frame[loc[1]:loc[1]+shape[0], loc[0]:loc[0]+shape[1]]
+
+        # Closeness score: nb of pixels whose RGB values are close to status img (to maximize)
+        close_pixels = (np.abs(found_img.astype(np.int16) - status.img).mean(axis=2) < 12) * status.mask
+        closeness_score = 100 * close_pixels.sum() / status.mask.size
+
+        # Peak score: nb of location in the frame that results in almost the minimum of score
+        # found in the convolution (to minimize)
+        nb_peaks = (res < 1.2*res.min()).sum()
+
+        # Nb of contours in common with the status img (to maximize)
+        found_contours = cv2.Canny(found_img, 400, 800).view(np.bool_)
+        contours_score = [100 * (contours * found_contours).sum() / size
+                          for (contours, size) in zip(*status.get_contours())]
+        # breakpoint()
+        best_contours_score = max(contours_score)
+
+        return closeness_score, nb_peaks, best_contours_score
+
+    def extract_status(self, frame, pets, spots):
         all_status = []
         for spot in range(5):
             if spot not in spots:
@@ -232,13 +334,11 @@ class TeamExtractor:
                 continue
 
             pet_area = frame[self.COORDS["pets"][spot]]
-            for status_name, (status_img, status_mask) in self.status_imgs.items():
+            for status_name, status in self.status_imgs.items():
                 for size in range(25, 50, 5):
-                    resized_status_img = cv2.resize(status_img, (size, size))
-                    resized_status_mask = (resized_status_img.sum(axis=2) != 0).astype(np.uint8)
+                    closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
-                    score, nb_peaks = get_found_score(pet_area, resized_status_img, resized_status_mask)
-                    if score > 15 and nb_peaks < 30:
+                    if closeness_score > 15 and nb_peaks < 20 and contours_score > 35:
                         all_status.append(status_name)
                         break
 
@@ -251,30 +351,14 @@ class TeamExtractor:
 
         return all_status
 
-    def extract_pets(self, frame, spots, status):
-        team = []
-        for spot in range(5):
-            if spot not in spots:
-                team.append(None)
-                continue
-
-            pet_area = frame[self.COORDS["pets"][spot]]
-            scores = {}
-            for pet_name, (pet_img, pet_mask) in self.pet_imgs.items():
-                scores[pet_name], _ = get_found_score(pet_area, pet_img, pet_mask)
-
-            team.append(max(scores, key=scores.get))
-
-        return team
-
     def extract_team(self, frame):
         if self.team_extracted == 0:
             team_height = self.get_team_height(frame)
             self._update_coords(team_height)
 
         spots = self.find_spots(frame)
-        status = self.extract_status(frame, spots)
-        pets = self.extract_pets(frame, spots, status)
+        pets = self.extract_pets(frame, spots)
+        status = self.extract_status(frame, pets, spots)
         self.team_extracted += 1
         return pets, status
 
@@ -325,7 +409,7 @@ class TeamExtractor:
         self.queue.put((worker_id, -1))
         capture.release()
 
-    def save_team(self, frame, pets, status, frame_nb):
+    def save_team(self, frame, pet_names, status_names, frame_nb):
         if not hasattr(self, "whole_pet_imgs"):
             video_name = os.path.splitext(os.path.basename(self.video_file))[0]
             self._load_whole_pets()
@@ -334,22 +418,23 @@ class TeamExtractor:
         shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
         for i in range(5):
-            if pets[i] is None:
+            if pet_names[i] is None:
                 continue
-            pet_img, pet_mask = self.whole_pet_imgs[pets[i]]
-            if status[i] != 'Nothing':
-                status_img, status_mask = self.status_imgs[status[i]]
+            pet = self.whole_pet_imgs[pet_names[i]]
+            if status_names[i] != 'Nothing':
+                status = self.status_imgs[status_names[i]]
 
-            h, w = pet_img.shape[:2]
+            h, w = pet.shape[:2]
             yt, xl = 5, 15 + 120*i
             yb, xr = yt + h, xl + w
-            visu[yt:yb, xl:xr] = np.maximum(pet_img, 255 * (1 - pet_mask)[..., np.newaxis])
+            visu[yt:yb, xl:xr] = np.maximum(pet.img, 255 * (1 - pet.mask)[..., np.newaxis])
 
-            if status[i] != 'Nothing':
-                h, w = status_img.shape[:2]
+            if status_names[i] != 'Nothing':
+                status.resize((35, 35))
+                h, w = status.img.shape[:2]
                 yt, xl = yb + 15, 40 + 120*i
                 yb, xr = yt + h, xl + w
-                visu[yt:yb, xl:xr] = np.maximum(status_img, 255 * (1 - status_mask)[..., np.newaxis])
+                visu[yt:yb, xl:xr] = np.maximum(status.img, 255 * (1 - status.mask)[..., np.newaxis])
 
         fig = plt.figure("main")
         axes = fig.subplots(2)
