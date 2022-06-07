@@ -105,8 +105,7 @@ def search_canny(img, init_min=400, init_max=800):
 
 
 class ImgStruct:
-    def __init__(self, img):
-        mask = (img.sum(axis=2) != 0).astype(np.uint8)
+    def __init__(self, img, mask):
         self.shape = img.shape[:2]
         self.init_shape = self.shape
 
@@ -133,8 +132,9 @@ class ImgStruct:
     def resize(self, new_shape):
         if new_shape not in self.resized_imgs:
             resized_img = cv2.resize(self.resized_imgs[self.init_shape], new_shape)
+            resized_mask = cv2.resize(self.resized_masks[self.init_shape], new_shape)
             self.resized_imgs[new_shape] = resized_img
-            self.resized_masks[new_shape] = (resized_img.sum(axis=2) != 0).astype(np.uint8)
+            self.resized_masks[new_shape] = resized_mask
 
         self.shape = new_shape
 
@@ -202,20 +202,25 @@ class TeamExtractor:
             img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
             if img.dtype == 'uint16':
                 img = (img // 256).astype(np.uint8)
-            mask = img[:, :, 3] > 0
+            mask = (img[:, :, 3] > 0).astype(np.uint8)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
 
             # Remove the head position from the mask to account for hats
             if pet_name == "Mosquito":
                 # Mosquito has the hat very low, remove the precise area
-                img[30:75, 20:80] = 0
                 img = cv2.resize(img, (PET_SIZE, PET_SIZE))
+                img[37:60, 20:55] = 0
+                img[:20] = 0
+                mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))
+                mask[37:60, 20:55] = 0
+                mask[:20] = 0
             else:
                 # Other pets just have the hat on top of them: mask the first rows
                 img = cv2.resize(img, (PET_SIZE, PET_SIZE))[30:, :]
+                mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))[30:, :]
 
-            self.pets[pet_name] = ImgStruct(img)
+            self.pets[pet_name] = ImgStruct(img, mask)
 
     def _load_status(self):
         self.status = {}
@@ -224,11 +229,12 @@ class TeamExtractor:
             img = cv2.imread(f"imgs/status/{file}", cv2.IMREAD_UNCHANGED)
             if img.dtype == 'uint16':
                 img = (img // 256).astype(np.uint8)
-            mask = img[:, :, 3] > 0
+            mask = (img[:, :, 3] > 0).astype(np.uint8)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
             img = cv2.resize(img, (PET_SIZE // 2, PET_SIZE // 2))
-            self.status[status_name] = ImgStruct(img)
+            mask = cv2.resize(mask, (PET_SIZE // 2, PET_SIZE // 2))
+            self.status[status_name] = ImgStruct(img, mask)
 
     def _load_assets(self):
         self.autoplay = cv2.imread("assets/autoplay_icon.png", cv2.IMREAD_UNCHANGED)
@@ -254,11 +260,12 @@ class TeamExtractor:
             img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
             if img.dtype == 'uint16':
                 img = (img // 256).astype(np.uint8)
-            mask = img[:, :, 3] > 0
+            mask = (img[:, :, 3] > 0).astype(np.uint8)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
             img = cv2.resize(img, (PET_SIZE, PET_SIZE))
-            self.whole_pet_imgs[pet_name] = ImgStruct(img)
+            mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))
+            self.whole_pet_imgs[pet_name] = ImgStruct(img, mask)
 
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
@@ -430,7 +437,6 @@ class TeamExtractor:
 
     def save_team(self, frame, pet_names, status_names, frame_nb):
         if not hasattr(self, "whole_pet_imgs"):
-            video_name = os.path.splitext(os.path.basename(self.video_file))[0]
             self._load_whole_pets()
 
         team_img = frame[self.COORDS["team"]]
