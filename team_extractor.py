@@ -20,7 +20,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="Path to the video to process")
     parser.add_argument('-o', '--output', default=None, type=str, help="Dir in which to save output")
-    parser.add_argument('-n', '--nb_workers', type=int, help="Number of workers to run in parallel")
+    parser.add_argument('-n', '--nb_workers', type=int, default=2, help="Number of workers to run in parallel")
     return parser.parse_args()
 
 def extend(coords, dx, dy=None):

@@ -41,7 +41,10 @@ def download_img(data, path, img_size):
     # convert_cmd = ["convert", "-background", "none", "-size", f"{img_size}x{img_size}", src_file, dst_file]
     branch_name = subprocess.run
     convert_cmd = ["inkscape", "-w", str(img_size), "-h", str(img_size), src_file, "-o", dst_file]
-    subprocess.run(convert_cmd, stderr=subprocess.DEVNULL)
+    result = subprocess.run(convert_cmd, capture_output=True)
+    if not os.path.isfile(dst_file):
+        print("An error occured !\n", result.stderr.decode())
+        exit()
 
     if data['name'] in WRONG_COMMITS:
         git_cmd = ["git", "-C", git_dir, "branch", "--format=%(refname:short)"]
