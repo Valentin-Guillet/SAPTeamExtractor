@@ -370,29 +370,40 @@ class TeamExtractor:
         self.team_extracted += 1
         return pets, status
 
-    def goto_next_battle(self, capture):
+    def goto_next(self, capture, coords, img, mask=None):
+        frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
+        skip = 80
+        frame = self.get_frame(capture)
         while True:
-            frame = self.get_frame(capture)
             if frame is None:
-                return None, -1
+                return None
 
-            res = cv2.matchTemplate(frame[self.COORDS["autoplay_area"]], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
-            if (res <= 1.2*res.min()).sum() <= 20:
-                break
+            res = cv2.matchTemplate(frame[coords], img, cv2.TM_SQDIFF, mask=mask)
+            if (res < 1.2*res.min()).sum() <= 20:
+                if skip > 1:
+                    frame_nb -= skip
+                    skip = (1 if skip < 10 else skip // 2)
+                else:
+                    break
 
-        frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
+            frame_nb += skip
+            frame = self.get_frame(capture, frame_nb)
+
+        return frame
+
+    def goto_next_battle(self, capture):
+        frame = self.goto_next(capture, self.COORDS["autoplay_area"], self.autoplay, self.autoplay_mask)
+        if frame is not None:
+            frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
+        else:
+            frame_nb = -1
         return frame, frame_nb
 
     def goto_next_turn(self, capture):
-        while True:
-            frame = self.get_frame(capture)
-            if frame is None:
-                return
-
-            res = cv2.matchTemplate(frame[self.COORDS["hourglass_area"]], self.hourglass, cv2.TM_SQDIFF)
-            if (res <= 1.2*res.min()).sum() <= 20:
-                self.get_frame(capture)   # Wait one frame to pass black screen
-                break
+        frame = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass)
+        if frame is not None:
+            # Wait one frame to pass black screen
+            self.get_frame(capture)
 
     def find_battles(self, worker_id, init_frame, end_frame):
         self.logger.info(f"[WORKER {worker_id}] Running between frames {init_frame} and {end_frame}")
