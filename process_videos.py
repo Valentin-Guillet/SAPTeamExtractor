@@ -15,6 +15,7 @@ def parse_args():
     parser.add_argument('path', type=str, help="Path to a list of video ids to process")
     parser.add_argument('-n', '--nb_workers', type=int, default=2, help="Number of workers to run in parallel")
     parser.add_argument('-d', '--nb_downloaders', type=int, default=4, help="Number of video downloaders to run in parallel")
+    parser.add_argument('--download_only', action='store_true', help="Number of video downloaders to run in parallel")
     return parser.parse_args()
 
 class VideoProcessor:
@@ -31,6 +32,11 @@ class VideoProcessor:
         os.makedirs(video_path, exist_ok=True)
 
         if not os.path.isfile(video_file):
+            team_files = glob.glob(os.path.join(video_path, 'team_*.png'))
+            if len(team_files) > 10:
+                print(f"Video {video_id} seems already processed ! Exiting...")
+                return
+
             print(f"Downloading video {video_id}")
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             download_cmd = ["yt-dlp", "--ignore-config", video_url, "-f", "136", "-o", video_file]
@@ -56,12 +62,16 @@ class VideoProcessor:
         # Remove video
         os.remove(video_file)
 
-    def process_list(self, path, nb_workers=2, nb_downloaders=4):
+    def process_list(self, path, nb_workers, nb_downloaders, download_only):
         with open(path, 'r') as file:
             video_ids = file.read().split('\n')[:-1]
 
         pool = multiprocessing.Pool(processes=nb_downloaders)
-        pool.map(self.download, video_ids)
+        res = pool.map_async(self.download, video_ids)
+
+        if download_only:
+            res.wait()
+            return
 
         downloaded_ids = []
         while len(downloaded_ids) < len(video_ids):
@@ -73,5 +83,5 @@ class VideoProcessor:
 if __name__ == '__main__':
     args = parse_args()
     processor = VideoProcessor()
-    processor.process_list(args.path, args.nb_workers, args.nb_downloaders)
+    processor.process_list(args.path, args.nb_workers, args.nb_downloaders, args.download_only)
 
