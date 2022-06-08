@@ -291,7 +291,7 @@ class TeamExtractor:
         found_img = frame[loc[1]:loc[1]+pet.shape[0], loc[0]:loc[0]+pet.shape[1]]
 
         close_pixels = (np.abs(found_img.astype(np.int16) - pet.img).mean(axis=2) < 12) * pet.mask
-        score = 100 * close_pixels.sum() / pet.mask.size
+        score = 100 * close_pixels.sum() / pet.mask.sum()
 
         return score
 
@@ -318,8 +318,8 @@ class TeamExtractor:
         found_img = frame[loc[1]:loc[1]+shape[0], loc[0]:loc[0]+shape[1]]
 
         # Closeness score: nb of pixels whose RGB values are close to status img (to maximize)
-        close_pixels = (np.abs(found_img.astype(np.int16) - status.img).mean(axis=2) < 12) * status.mask
-        closeness_score = 100 * close_pixels.sum() / status.mask.size
+        close_pixels = (np.abs(found_img.astype(np.int16) - status.img).mean(axis=2) < 15) * status.mask
+        closeness_score = 100 * close_pixels.sum() / status.mask.sum()
 
         # Peak score: nb of location in the frame that results in almost the minimum of score
         # found in the convolution (to minimize)
@@ -345,7 +345,7 @@ class TeamExtractor:
                 for size in range(25, 50, 5):
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
-                    if closeness_score > 15 and nb_peaks < 20 and contours_score > 35:
+                    if (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 40) > 30:
                         all_status.append(status_name)
                         break
 
