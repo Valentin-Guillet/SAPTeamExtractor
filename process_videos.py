@@ -15,7 +15,7 @@ def parse_args():
     parser.add_argument('path', type=str, help="Path to a list of video ids to process")
     parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
     parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
-    parser.add_argument('-d', '--nb_downloaders', type=int, default=4, help="Number of video downloaders to run in parallel")
+    parser.add_argument('-d', '--nb_downloaders', type=int, default=2, help="Number of video downloaders to run in parallel")
     parser.add_argument('--download_only', action='store_true', help="Number of video downloaders to run in parallel")
     return parser.parse_args()
 
@@ -34,8 +34,9 @@ class VideoProcessor:
 
         if not os.path.isfile(video_file):
             team_files = glob.glob(os.path.join(video_path, 'team_*.png'))
-            if len(team_files) > 10:
+            if not self.download_only and len(team_files) > 10:
                 print(f"Video {video_id} seems already processed ! Exiting...")
+                self.queue.put(None)
                 return
 
             print(f"Downloading video {video_id}")
@@ -58,7 +59,7 @@ class VideoProcessor:
         # Process
         print(f"Processing video {video_id}")
         team_extractor = TeamExtractor(video_file, video_path)
-        team_extractor.run(nb_finders=finders, nb_extractors=nb_extractors)
+        team_extractor.run(nb_finders=nb_finders, nb_extractors=nb_extractors)
 
         # Remove video
         os.remove(video_file)
@@ -67,6 +68,7 @@ class VideoProcessor:
         with open(path, 'r') as file:
             video_ids = file.read().split('\n')[:-1]
 
+        self.download_only = download_only
         pool = multiprocessing.Pool(processes=nb_downloaders)
         res = pool.map_async(self.download, video_ids)
 
@@ -78,7 +80,8 @@ class VideoProcessor:
         while len(downloaded_ids) < len(video_ids):
             downloaded_id = self.queue.get()
             downloaded_ids.append(downloaded_id)
-            self.process(downloaded_id, nb_finders, nb_extractors)
+            if downloaded_id is not None:
+                self.process(downloaded_id, nb_finders, nb_extractors)
 
 
 if __name__ == '__main__':
