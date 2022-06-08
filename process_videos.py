@@ -13,7 +13,8 @@ from team_extractor import TeamExtractor
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="Path to a list of video ids to process")
-    parser.add_argument('-n', '--nb_workers', type=int, default=2, help="Number of workers to run in parallel")
+    parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
+    parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
     parser.add_argument('-d', '--nb_downloaders', type=int, default=4, help="Number of video downloaders to run in parallel")
     parser.add_argument('--download_only', action='store_true', help="Number of video downloaders to run in parallel")
     return parser.parse_args()
@@ -46,7 +47,7 @@ class VideoProcessor:
             print(f"Video {video_id} already downloaded")
         self.queue.put(video_id)
 
-    def process(self, video_id, nb_workers):
+    def process(self, video_id, nb_finders, nb_extractors):
         video_path = os.path.join("checks", video_id)
         video_file = os.path.join(video_path, "video.mp4")
 
@@ -57,12 +58,12 @@ class VideoProcessor:
         # Process
         print(f"Processing video {video_id}")
         team_extractor = TeamExtractor(video_file, video_path)
-        team_extractor.run(nb_workers=nb_workers)
+        team_extractor.run(nb_finders=finders, nb_extractors=nb_extractors)
 
         # Remove video
         os.remove(video_file)
 
-    def process_list(self, path, nb_workers, nb_downloaders, download_only):
+    def process_list(self, path, nb_finders, nb_extractors, nb_downloaders, download_only):
         with open(path, 'r') as file:
             video_ids = file.read().split('\n')[:-1]
 
@@ -77,11 +78,11 @@ class VideoProcessor:
         while len(downloaded_ids) < len(video_ids):
             downloaded_id = self.queue.get()
             downloaded_ids.append(downloaded_id)
-            self.process(downloaded_id, nb_workers)
+            self.process(downloaded_id, nb_finders, nb_extractors)
 
 
 if __name__ == '__main__':
     args = parse_args()
     processor = VideoProcessor()
-    processor.process_list(args.path, args.nb_workers, args.nb_downloaders, args.download_only)
+    processor.process_list(args.path, args.nb_finders, args.nb_extractors, args.nb_downloaders, args.download_only)
 

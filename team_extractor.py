@@ -19,8 +19,10 @@ PET_SIZE = 100
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="Path to the video to process")
-    parser.add_argument('-o', '--output', default=None, type=str, help="Dir in which to save output")
-    parser.add_argument('-n', '--nb_workers', type=int, default=2, help="Number of workers to run in parallel")
+    parser.add_argument('-o', '--output', type=str, help="Dir in which to save output")
+    parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
+    parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
+    parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes")
     return parser.parse_args()
 
 def extend(coords, dx, dy=None):
@@ -199,6 +201,7 @@ class TeamExtractor:
 
     def _load_pets(self):
         self.pets = {}
+        self.whole_pets = {}
         for file in os.listdir("imgs/pets"):
             pet_name = file[:-4]
             img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
@@ -208,19 +211,21 @@ class TeamExtractor:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             img *= mask[:, :, np.newaxis]
 
+            img = cv2.resize(img, (PET_SIZE, PET_SIZE))
+            mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))
+            self.whole_pets[pet_name] = ImgStruct(img.copy(), mask.copy())
+
             # Remove the head position from the mask to account for hats
             if pet_name == "Mosquito":
                 # Mosquito has the hat very low, remove the precise area
-                img = cv2.resize(img, (PET_SIZE, PET_SIZE))
                 img[37:60, 20:55] = 0
                 img[:20] = 0
-                mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))
                 mask[37:60, 20:55] = 0
                 mask[:20] = 0
             else:
                 # Other pets just have the hat on top of them: mask the first rows
-                img = cv2.resize(img, (PET_SIZE, PET_SIZE))[30:, :]
-                mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))[30:, :]
+                img = img[30:, :]
+                mask = mask[30:, :]
 
             self.pets[pet_name] = ImgStruct(img, mask)
 
@@ -254,20 +259,6 @@ class TeamExtractor:
             xp_bar = cv2.imread("assets/XP/xp_icon_0.png")
             xp_bar = cv2.cvtColor(xp_bar, cv2.COLOR_BGR2RGB)
             self.xp_bars.append(xp_bar)
-
-    def _load_whole_pets(self):
-        self.whole_pet_imgs = {}
-        for file in os.listdir("imgs/pets"):
-            pet_name = file[:-4]
-            img = cv2.imread(f"imgs/pets/{file}", cv2.IMREAD_UNCHANGED)
-            if img.dtype == 'uint16':
-                img = (img // 256).astype(np.uint8)
-            mask = (img[:, :, 3] > 0).astype(np.uint8)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img *= mask[:, :, np.newaxis]
-            img = cv2.resize(img, (PET_SIZE, PET_SIZE))
-            mask = cv2.resize(mask, (PET_SIZE, PET_SIZE))
-            self.whole_pet_imgs[pet_name] = ImgStruct(img, mask)
 
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
@@ -433,20 +424,16 @@ class TeamExtractor:
             frame, frame_nb = self.goto_next_battle(capture)
 
         self.logger.info(f"[WORKER {worker_id}] Done !")
-        self.queue.put((worker_id, -1))
         capture.release()
 
     def save_team(self, frame, pet_names, status_names, frame_nb):
-        if not hasattr(self, "whole_pet_imgs"):
-            self._load_whole_pets()
-
         team_img = frame[self.COORDS["team"]]
         shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
         for i in range(5):
             if pet_names[i] is None:
                 continue
-            pet = self.whole_pet_imgs[pet_names[i]]
+            pet = self.whole_pets[pet_names[i]]
             if status_names[i] != 'Nothing':
                 status = self.status[status_names[i]]
 
@@ -471,31 +458,20 @@ class TeamExtractor:
         axes[1].axis('off')
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
-    def extract_teams(self, nb_workers):
-        self.logger.info("[EXTRACTOR] Initializing")
-        workers_done = []
+    def extract_teams(self, extractor_id):
+        self.logger.info(f"[EXTRACTOR {extractor_id}] Initializing")
         frame, frame_nb = self.queue.get()
-        while type(frame) is int:
-            workers_done.append(frame)
-            frame, frame_nb = self.queue.get()
 
-        while len(workers_done) < nb_workers:
-            self.logger.info("[EXTRACTOR] Processing frame")
+        while frame is not None:
+            self.logger.info(f"[EXTRACTOR {extractor_id}] Processing frame {frame_nb}")
             pets, status = self.extract_team(frame)
             self.save_team(frame, pets, status, frame_nb)
 
-            self.logger.info("[EXTRACTOR] List of pets:" + str(pets))
-            self.logger.info("[EXTRACTOR] List of status:" + str(status))
+            self.logger.info(f"[EXTRACTOR {extractor_id}] List of pets: {pets}")
+            self.logger.info(f"[EXTRACTOR {extractor_id}] List of status: {status}")
             frame, frame_nb = self.queue.get()
-            while type(frame) is int:
-                self.logger.info(f"[EXTRACTOR] Worker {frame} done")
-                workers_done.append(frame)
-                if len(workers_done) < nb_workers:
-                    frame, frame_nb = self.queue.get()
-                else:
-                    break
 
-        self.logger.info("[EXTRACTOR] Extractor done !")
+        self.logger.info(f"[EXTRACTOR {extractor_id}] Extractor done !")
 
     def run_sync(self):
         capture = cv2.VideoCapture(self.video_file)
@@ -510,33 +486,43 @@ class TeamExtractor:
 
         capture.release()
 
-    def run(self, nb_workers=2):
-        if nb_workers == 1:
+    def run(self, nb_finders=2, nb_extractors=2):
+        if nb_finders == nb_extractors == 1:
             self.run_sync()
             return
 
-        frame_limits = [(i*self.video_length) // nb_workers for i in range(nb_workers+1)]
+        frame_limits = [(i*self.video_length) // nb_finders for i in range(nb_finders+1)]
 
         battle_finders = []
-        for i in range(nb_workers):
-            proc = multiprocessing.Process(target=self.find_battles, args=(i, *frame_limits[i:i+2]))
-            battle_finders.append(proc)
+        for i in range(nb_finders):
+            battle_finder = multiprocessing.Process(target=self.find_battles, args=(i, *frame_limits[i:i+2]))
+            battle_finders.append(battle_finder)
 
-        team_extractor = multiprocessing.Process(target=self.extract_teams, args=(nb_workers, ))
+        team_extractors = []
+        for i in range(nb_extractors):
+            team_extractor = multiprocessing.Process(target=self.extract_teams, args=(i, ))
+            team_extractors.append(team_extractor)
 
-        for proc in battle_finders:
-            proc.start()
-        team_extractor.start()
+        for battle_finder in battle_finders:
+            battle_finder.start()
+        for team_extractor in team_extractors:
+            team_extractor.start()
 
-        for proc in battle_finders:
-            proc.join()
-        team_extractor.join()
+        for battle_finder in battle_finders:
+            battle_finder.join()
+        for i in range(nb_extractors):
+            self.queue.put((None, -1))
+        for team_extractor in team_extractors:
+            team_extractor.join()
 
 
 if __name__ == '__main__':
     args = parse_args()
     if args.output is None:
         args.output = os.path.dirname(args.path)
+    if args.sync:
+        args.nb_finders = 1
+        args.nb_extractors = 1
     team_extractor = TeamExtractor(args.path, args.output)
-    team_extractor.run(nb_workers=args.nb_workers)
+    team_extractor.run(nb_finders=args.nb_finders, nb_extractors=args.nb_extractors)
 
