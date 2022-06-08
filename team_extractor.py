@@ -166,6 +166,7 @@ class TeamExtractor:
 
     COORDS["attack"] = []
     COORDS["life"] = []
+    COORDS["inter"] = []
     COORDS["pets"] = []
 
     @classmethod
@@ -176,6 +177,7 @@ class TeamExtractor:
         for i in range(5):
             cls.COORDS["attack"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
             cls.COORDS["life"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
+            cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+120*i, 735+120*i)))
             cls.COORDS["pets"].append((slice(h+22, h+149), slice(662+120*i, 786+120*i)))
 
     def __init__(self, video_file, output_path):
@@ -285,11 +287,10 @@ class TeamExtractor:
     def find_spots(self, frame):
         spots = []
         for spot in range(5):
-            attack = frame[self.COORDS["attack"][spot]]
-            m = np.repeat(attack.mean(axis=2)[..., np.newaxis], 3, axis=2)
-            grey_pixels = (np.abs(m - attack).sum(axis=2) <= 20).sum()
+            inter = frame[self.COORDS["inter"][spot]]
+            white_pixels = (inter.mean(axis=2) > 250).sum()
 
-            if grey_pixels >= 500:
+            if white_pixels >= 400:
                 spots.append(spot)
         return spots
 
