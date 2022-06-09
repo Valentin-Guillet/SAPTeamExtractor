@@ -52,7 +52,10 @@ def download_img(data, path, img_size):
         img_type += 's'
     dst_file = f"imgs/{img_type}/{data['name']}.png"
 
-    if data['name'] in SAP_WIKI_URL:
+    if data['name'] == "Garlic Armor":
+        download_from_wiki(data['name'], f"imgs/{img_type}/{data['name']}_alt.png", img_size)
+
+    elif data['name'] in SAP_WIKI_URL:
         download_from_wiki(data['name'], dst_file, img_size)
         return
 
