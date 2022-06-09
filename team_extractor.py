@@ -23,7 +23,17 @@ def parse_args():
     parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
     parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
     parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes")
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.output is None:
+        args.output = os.path.dirname(args.path)
+    if args.sync:
+        args.nb_finders = 1
+        args.nb_extractors = 1
+    if os.path.isdir(args.path) and 'video.mp4' in os.listdir(args.path):
+        args.path = os.path.join(args.path, 'video.mp4')
+
+    return args
 
 def extend(coords, dx, dy=None):
     if dy is None:
@@ -162,7 +172,7 @@ class TeamExtractor:
 
     COORDS = {"autoplay": (slice(58, 137), slice(674, 789)),
               "hourglass": (slice(25, 56), slice(401, 423)),
-            }
+              }
 
     COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
     COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
@@ -200,6 +210,7 @@ class TeamExtractor:
             self.logger.addHandler(logging.StreamHandler())
 
         self.team_extracted = 0
+        self.team_reprs = multiprocessing.Queue()
 
     def _load_pets(self):
         self.pets = {}
@@ -427,7 +438,7 @@ class TeamExtractor:
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
 
-    def save_team(self, frame, pet_names, status_names, frame_nb):
+    def save_team_img(self, frame, pet_names, status_names, frame_nb):
         team_img = frame[self.COORDS["team"]]
         shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
@@ -459,6 +470,29 @@ class TeamExtractor:
         axes[1].axis('off')
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
+    def save_team(self, frame, pet_names, status_names, frame_nb):
+        self.save_team_img(frame, pet_names, status_names, frame_nb)
+        turn, attacks, lifes, xps = 1, [-1] * 5, [-1] * 5, [-1] * 5
+        pets_reprs = []
+        for i in range(5):
+            if pet_names[i] is None:
+                continue
+            status_name = "none" if status_names[i] == "Nothing" else status_names[i].replace(' ', '_').lower()
+            pets_reprs.append(f"({pet_names[i]} {attacks[i]} {lifes[i]} {xps[i]} {status_name})")
+
+        self.team_reprs.put(f"{turn} {' '.join(pets_reprs)}")
+
+    def write_teams(self):
+        team_file = os.path.join(self.output_path, "team_list.txt")
+        if os.path.isfile(team_file):
+            os.rename(team_file, team_file + ".old")
+        self.logger.info(f"[WRITER]: Writing extracted teams to {team_file}")
+        teams = []
+        while not self.team_reprs.empty():
+            teams.append(self.team_reprs.get())
+        with open(team_file, 'w') as file:
+            file.write('\n'.join(teams))
+
     def extract_teams(self, extractor_id):
         self.logger.info(f"[EXTRACTOR {extractor_id}] Initializing")
         frame, frame_nb = self.queue.get()
@@ -485,6 +519,7 @@ class TeamExtractor:
             self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
+        self.write_teams()
         capture.release()
 
     def run(self, nb_finders=2, nb_extractors=2):
@@ -516,14 +551,11 @@ class TeamExtractor:
         for team_extractor in team_extractors:
             team_extractor.join()
 
+        self.write_teams()
+
 
 if __name__ == '__main__':
     args = parse_args()
-    if args.output is None:
-        args.output = os.path.dirname(args.path)
-    if args.sync:
-        args.nb_finders = 1
-        args.nb_extractors = 1
     team_extractor = TeamExtractor(args.path, args.output)
     team_extractor.run(nb_finders=args.nb_finders, nb_extractors=args.nb_extractors)
 
