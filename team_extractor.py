@@ -229,12 +229,15 @@ class TeamExtractor:
             self.whole_pets[pet_name] = ImgStruct(img.copy(), mask.copy())
 
             # Remove the head position from the mask to account for hats
+            # Mosquito and Scorpions have their hat very low, remove the precise area
             if pet_name == "Mosquito":
-                # Mosquito has the hat very low, remove the precise area
                 img[37:60, 20:55] = 0
                 img[:20] = 0
                 mask[37:60, 20:55] = 0
                 mask[:20] = 0
+            elif pet_name == "Scorpion":
+                img[12:60, 35:70] = 0
+                mask[12:60, 35:70] = 0
             else:
                 # Other pets just have the hat on top of them: mask the first rows
                 img = img[30:, :]
@@ -326,6 +329,7 @@ class TeamExtractor:
 
     def get_status_score(self, frame, status, shape):
         status.resize(shape)
+        frame = frame[10:-10, ...]
         res = cv2.matchTemplate(frame, status.img, cv2.TM_SQDIFF, mask=status.mask)
         _, _, loc, _ = cv2.minMaxLoc(res)
         found_img = frame[loc[1]:loc[1]+shape[0], loc[0]:loc[0]+shape[1]]
