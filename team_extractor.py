@@ -144,12 +144,13 @@ class ImgStruct:
         h, w = self.shape[:2]
         contours = np.zeros((h+2, w+2), dtype=np.bool_)
         contours[1:h+1, 1:w+1] = cv2.Canny(self.img, 400, 800)
+        orig_size = (contours != 0).sum()
 
-        all_contours = [contours[1:h+1, 1:w+1], contours[:h, 1:w+1], contours[2:, 1:w+1],
-                        contours[1:h+1, :w], contours[1:h+1, 2:]]
-        all_nb_pixels = [(contour != 0).sum() for contour in all_contours]
+        shifted_contours = [contours[1:h+1, 1:w+1], contours[:h, 1:w+1], contours[2:, 1:w+1],
+                            contours[1:h+1, :w], contours[1:h+1, 2:]]
+        contours = (sum(shifted_contours) > 0)
 
-        return all_contours, all_nb_pixels
+        return contours, orig_size
 
     def get_contours(self):
         if self.shape not in self.contours:
@@ -180,7 +181,7 @@ class TeamExtractor:
             cls.COORDS["attack"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
             cls.COORDS["life"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
             cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+120*i, 735+120*i)))
-            cls.COORDS["pets"].append((slice(h+22, h+149), slice(662+120*i, 786+120*i)))
+            cls.COORDS["pets"].append((slice(h+22, h+149), slice(658+120*i, 786+120*i)))
 
     def __init__(self, video_file, output_path):
         self.video_file = video_file
@@ -195,7 +196,8 @@ class TeamExtractor:
 
         self.logger = logging.getLogger('main')
         self.logger.setLevel(logging.INFO)
-        self.logger.addHandler(logging.StreamHandler())
+        if not self.logger.handlers:
+            self.logger.addHandler(logging.StreamHandler())
 
         self.team_extracted = 0
 
@@ -279,7 +281,7 @@ class TeamExtractor:
         spots = []
         for spot in range(5):
             inter = frame[self.COORDS["inter"][spot]]
-            white_pixels = (inter.mean(axis=2) > 250).sum()
+            white_pixels = (inter.mean(axis=2) > 245).sum()
 
             if white_pixels >= 400:
                 spots.append(spot)
@@ -327,11 +329,10 @@ class TeamExtractor:
 
         # Nb of contours in common with the status img (to maximize)
         found_contours = cv2.Canny(found_img, 400, 800).view(np.bool_)
-        contours_score = [100 * (contours * found_contours).sum() / size
-                          for (contours, size) in zip(*status.get_contours())]
-        best_contours_score = max(contours_score)
+        contours, contours_size = status.get_contours()
+        contours_score = 100 * (contours * found_contours).sum() / contours_size
 
-        return closeness_score, nb_peaks, best_contours_score
+        return closeness_score, nb_peaks, contours_score
 
     def extract_status(self, frame, pets, spots):
         all_status = []
@@ -345,7 +346,7 @@ class TeamExtractor:
                 for size in range(25, 50, 5):
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
-                    if (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 40) > 30:
+                    if (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 60) // 2 > 30:
                         all_status.append(status_name)
                         break
 
