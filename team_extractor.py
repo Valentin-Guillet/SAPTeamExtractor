@@ -91,10 +91,17 @@ def save_lvl_icon(frame):
     img = Image.fromarray(lvl_icon)
     img.save("assets/lvl_icon.png")
 
-def save_xp_icon(frame):
-    # Save XP bar icon from frame where team is low (before SAP update) on spot 2
-    coords_xp_2 = (slice(469, 485), slice(974, 1024))
-    xp_bar = frame[coords_xp_2]
+def save_xp_bar(frame, spot, value):
+    xp_bar = frame[TeamExtractor.COORDS["xp_bars"][spot]]
+    os.makedirs("assets", exist_ok=True)
+    img = Image.fromarray(xp_bar)
+    img.save(f"assets/XP/xp_bar_{value}.png")
+
+def save_xp_digit(frame, spot, digit):
+    xp_digit = frame[TeamExtractor.COORDS["xp_digits"][spot]]
+    os.makedirs("assets", exist_ok=True)
+    img = Image.fromarray(xp_digit)
+    img.save(f"assets/XP/xp_digit_{digit}.png")
 
 def search_canny(img, init_min=400, init_max=800):
     fig = plt.figure("canny_search")
@@ -170,17 +177,19 @@ class ImgStruct:
 
 class TeamExtractor:
 
-    COORDS = {"autoplay": (slice(58, 137), slice(674, 789)),
-              "hourglass": (slice(25, 56), slice(401, 423)),
-              }
+    COORDS = {}
+    COORDS["autoplay"] = (slice(58, 137), slice(674, 789))
+    COORDS["hourglass"] = (slice(25, 56), slice(401, 423))
 
     COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
     COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
 
-    COORDS["attack"] = []
-    COORDS["life"] = []
+    COORDS["attacks"] = []
+    COORDS["lives"] = []
     COORDS["inter"] = []
     COORDS["pets"] = []
+    COORDS["xp_digits"] = []
+    COORDS["xp_bars"] = []
 
     @classmethod
     def _update_coords(cls, height):
@@ -188,10 +197,12 @@ class TeamExtractor:
 
         h = height
         for i in range(5):
-            cls.COORDS["attack"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
-            cls.COORDS["life"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
+            cls.COORDS["attacks"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
+            cls.COORDS["lives"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
             cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+120*i, 735+120*i)))
             cls.COORDS["pets"].append((slice(h+22, h+149), slice(658+120*i, 786+120*i)))
+            cls.COORDS["xp_digits"].append((slice(h+7, h+41), slice(761+120*i, 784+120*i)))
+            cls.COORDS["xp_bars"].append((slice(h+40, h+56), slice(734+120*i, 784+120*i)))
 
     def __init__(self, video_file, output_path):
         self.video_file = video_file
@@ -270,11 +281,20 @@ class TeamExtractor:
         self.lvl = cv2.imread("assets/lvl_icon.png")
         self.lvl = cv2.cvtColor(self.lvl, cv2.COLOR_BGR2RGB)
 
+        self.xp_digits = []
+        for i in range(1, 4):
+            xp_digit = cv2.imread(f"assets/XP/xp_digit_{i}.png")
+            xp_digit = cv2.cvtColor(xp_digit, cv2.COLOR_BGR2RGB)
+            self.xp_digits.append(xp_digit)
+
         self.xp_bars = []
-        for i in range(len(os.listdir("assets/XP/"))):
-            xp_bar = cv2.imread("assets/XP/xp_icon_0.png")
+        for i in range(5):
+            xp_bar = cv2.imread(f"assets/XP/xp_bar_{i}.png")
             xp_bar = cv2.cvtColor(xp_bar, cv2.COLOR_BGR2RGB)
             self.xp_bars.append(xp_bar)
+
+        self.xp_conversion_table = {(1, 0): 0, (1, 2): 1, (2, 0): 2,
+                                    (2, 1): 3, (2, 3): 4, (3, 4): 5}
 
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
@@ -374,6 +394,34 @@ class TeamExtractor:
 
         return all_status
 
+    def extract_xps(self, frame, spots):
+        xps = []
+        hsv_areas = []
+        for spot in range(5):
+            if spot not in spots:
+                xps.append(None)
+                continue
+
+            xp_digit_area = frame[self.COORDS["xp_digits"][spot]]
+            scores = []
+            for xp_digit in self.xp_digits:
+                scores.append(cv2.matchTemplate(xp_digit_area, xp_digit, cv2.TM_SQDIFF))
+            xp_digit = min(range(3), key=lambda i: scores[i]) + 1
+
+            if xp_digit == 3:
+                xps.append(5)
+                continue
+
+            xp_bar_area = frame[self.COORDS["xp_bars"][spot]]
+            scores = []
+            for xp_bar in self.xp_bars:
+                scores.append(cv2.matchTemplate(xp_bar_area, xp_bar, cv2.TM_SQDIFF))
+            xp_bar_value = min(range(5), key=lambda i: scores[i])
+
+            xps.append(self.xp_conversion_table[(xp_digit, xp_bar_value)])
+
+        return xps
+
     def extract_team(self, frame):
         if self.team_extracted == 0:
             team_height = self.get_team_height(frame)
@@ -382,8 +430,9 @@ class TeamExtractor:
         spots = self.find_spots(frame)
         pets = self.extract_pets(frame, spots)
         status = self.extract_status(frame, pets, spots)
+        xps = self.extract_xps(frame, spots)
         self.team_extracted += 1
-        return pets, status
+        return pets, status, xps
 
     def goto_next(self, capture, coords, img, mask=None):
         frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
@@ -442,7 +491,7 @@ class TeamExtractor:
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
 
-    def save_team_img(self, frame, pet_names, status_names, frame_nb):
+    def save_team_img(self, frame, pet_names, status_names, xps, frame_nb):
         team_img = frame[self.COORDS["team"]]
         shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
@@ -450,20 +499,34 @@ class TeamExtractor:
             if pet_names[i] is None:
                 continue
             pet = self.whole_pets[pet_names[i]]
-            if status_names[i] != 'Nothing':
-                status = self.status[status_names[i]]
 
             h, w = pet.shape[:2]
             yt, xl = 5, 15 + 120*i
             yb, xr = yt + h, xl + w
             visu[yt:yb, xl:xr] = np.maximum(pet.img, 255 * (1 - pet.mask)[..., np.newaxis])
 
+            yt, xl = yb + 15, 40 + 120*i
+            yb, xr = yt + 35, xl + 35
             if status_names[i] != 'Nothing':
+                status = self.status[status_names[i]]
                 status.resize((35, 35))
-                h, w = status.img.shape[:2]
-                yt, xl = yb + 15, 40 + 120*i
-                yb, xr = yt + h, xl + w
                 visu[yt:yb, xl:xr] = np.maximum(status.img, 255 * (1 - status.mask)[..., np.newaxis])
+
+            for key, value in self.xp_conversion_table.items():
+                if value == xps[i]:
+                    digit, bar = key
+                    break
+            xp_digit = self.xp_digits[digit - 1]
+            h, w = xp_digit.shape[:2]
+            yt, xl = yb + 15, 55 + 120*i
+            yb, xr = yt + h, xl + w
+            visu[yt:yb, xl:xr] = xp_digit
+
+            xp_bar = self.xp_bars[bar]
+            h, w = xp_bar.shape[:2]
+            yt, xl = yb + 15, 40 + 120*i
+            yb, xr = yt + h, xl + w
+            visu[yt:yb, xl:xr] = xp_bar
 
         fig = plt.figure("main")
         axes = fig.subplots(2)
@@ -474,15 +537,15 @@ class TeamExtractor:
         axes[1].axis('off')
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
-    def save_team(self, frame, pet_names, status_names, frame_nb):
-        self.save_team_img(frame, pet_names, status_names, frame_nb)
-        turn, attacks, lifes, xps = 1, [-1] * 5, [-1] * 5, [-1] * 5
+    def save_team(self, frame, pet_names, status_names, xps, frame_nb):
+        self.save_team_img(frame, pet_names, status_names, xps, frame_nb)
+        turn, attacks, lives = 1, [-1] * 5, [-1] * 5
         pets_reprs = []
         for i in range(5):
             if pet_names[i] is None:
                 continue
             status_name = "none" if status_names[i] == "Nothing" else status_names[i].replace(' ', '_').lower()
-            pets_reprs.append(f"({pet_names[i]} {attacks[i]} {lifes[i]} {xps[i]} {status_name})")
+            pets_reprs.append(f"({pet_names[i]} {attacks[i]} {lives[i]} {xps[i]} {status_name})")
 
         self.team_reprs.put(f"{turn} {' '.join(pets_reprs)}")
 
@@ -503,8 +566,8 @@ class TeamExtractor:
 
         while frame is not None:
             self.logger.info(f"[EXTRACTOR {extractor_id}] Processing frame {frame_nb}")
-            pets, status = self.extract_team(frame)
-            self.save_team(frame, pets, status, frame_nb)
+            pets, status, xps = self.extract_team(frame)
+            self.save_team(frame, pets, status, xps, frame_nb)
 
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of pets: {pets}")
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of status: {status}")
@@ -517,8 +580,8 @@ class TeamExtractor:
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
-            pets, status = self.extract_team(frame)
-            self.save_team(frame, pets, status, frame_nb)
+            pets, status, xps = self.extract_team(frame)
+            self.save_team(frame, pets, status, xps, frame_nb)
 
             self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
@@ -550,7 +613,7 @@ class TeamExtractor:
 
         for battle_finder in battle_finders:
             battle_finder.join()
-        for i in range(nb_extractors):
+        for _ in range(nb_extractors):
             self.queue.put((None, -1))
         for team_extractor in team_extractors:
             team_extractor.join()
@@ -562,4 +625,3 @@ if __name__ == '__main__':
     args = parse_args()
     team_extractor = TeamExtractor(args.path, args.output)
     team_extractor.run(nb_finders=args.nb_finders, nb_extractors=args.nb_extractors)
-
