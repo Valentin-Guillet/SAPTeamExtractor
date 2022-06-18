@@ -3,7 +3,6 @@
 import argparse
 import json
 import os
-import shutil
 import subprocess
 
 import cv2
@@ -14,7 +13,10 @@ from PIL import Image
 DATA_FILE = "data.json"
 WRONG_COMMITS = ["Bus", "Boar", "Dromedary"]
 
-SAP_WIKI_URL = {"Tabby Cat": "4/4c/TabbyCat.png",
+SAP_WIKI_URL = {"Dirty Rat": "9/92/DirtyRat_%28Token%29.png",
+                "Tabby Cat": "4/4c/TabbyCat.png",
+                "Zombie Cricket": "7/71/Cricket_%28Token%29.png",
+                "Zombie Fly": "3/39/Fly_%28Token%29.png",
                 "Garlic Armor": "c/cc/Garlic.png", }
 
 
@@ -32,9 +34,9 @@ def download_from_wiki(img_name, dst_file, img_size):
         img = np.hstack((before_col, img, after_col))
 
     elif h < w:
-        before_row = np.zeros(((w - h), w // 2, 4), np.uint8)
-        after_row = np.zeros(((w - h), w // 2, 4), np.uint8)
-        img = np.vstack((before_col, img, after_col))
+        before_row = np.zeros(((w - h) // 2, w, 4), np.uint8)
+        after_row = np.zeros(((w - h) // 2, w, 4), np.uint8)
+        img = np.vstack((before_row, img, after_row))
 
     # BGR to RGB
     img = img[..., (2, 1, 0, 3)]
@@ -111,4 +113,3 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--size', type=int, default=120, help="Size of the final png")
     args = parser.parse_args()
     download_imgs(DATA_FILE, args.path, args.size)
-
