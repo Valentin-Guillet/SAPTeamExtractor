@@ -516,7 +516,7 @@ class TeamExtractor:
 
     def goto_next(self, capture, coords, img, mask=None):
         frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
-        skip = 80
+        skip = 60
         frame = self.get_frame(capture)
         while True:
             if frame is None:
