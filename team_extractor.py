@@ -449,6 +449,45 @@ class TeamExtractor:
 
         return xps
 
+    def extract_stat(self, frame):
+        found_digits = []
+        for i in range(10):
+            digit, mask = self.stat_digits[i]
+            res = cv2.matchTemplate(frame, digit, cv2.TM_SQDIFF, mask=mask)
+            if res.min() < 1e6:
+                _, xs = np.where(res <= 3*res.min())
+
+                # Clustering: locations should be more than 5 pixels apart
+                xs.sort()
+                prev_x = -100
+                for x in xs:
+                    if x - prev_x > 5:
+                        found_digits.append((x, i))
+                    prev_x = x
+
+        value = 0
+        for _, digit in sorted(found_digits):
+            value = 10 * value + digit
+
+        return value
+
+    def extract_stats(self, frame, spots):
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        stats = []
+        for spot in range(5):
+            if spot not in spots:
+                stats.append(None)
+                continue
+
+            attack_area = frame[self.COORDS["attacks"][spot]]
+            life_area = frame[self.COORDS["lives"][spot]]
+
+            attack = self.extract_stat(attack_area)
+            life = self.extract_stat(life_area)
+            stats.append((attack, life))
+
+        return stats
+
     def extract_team(self, frame):
         if self.team_extracted == 0:
             team_height = self.get_team_height(frame)
@@ -458,8 +497,9 @@ class TeamExtractor:
         pets = self.extract_pets(frame, spots)
         status = self.extract_status(frame, pets, spots)
         xps = self.extract_xps(frame, spots)
+        stats = self.extract_stats(frame, spots)
         self.team_extracted += 1
-        return pets, status, xps
+        return pets, status, xps, stats
 
     def goto_next(self, capture, coords, img, mask=None):
         frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
@@ -518,9 +558,9 @@ class TeamExtractor:
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
 
-    def save_team_img(self, frame, pet_names, status_names, xps, frame_nb):
+    def save_team_img(self, frame, pet_names, status_names, xps, stats, frame_nb):
         team_img = frame[self.COORDS["team"]]
-        shape = (int(1.3*team_img.shape[0]), team_img.shape[1], 3)
+        shape = (int(1.6*team_img.shape[0]), team_img.shape[1], 3)
         visu = 255 * np.ones(shape, np.uint8)
         for i in range(5):
             if pet_names[i] is None:
@@ -555,6 +595,18 @@ class TeamExtractor:
             yb, xr = yt + h, xl + w
             visu[yt:yb, xl:xr] = xp_bar
 
+            for j in range(2):
+                stat = stats[i][j]
+                stat_digits = list(map(int, str(stat)))
+                yt, xl = yb + 15, 40 + 120*i
+                for digit in stat_digits:
+                    stat_digit, stat_mask = self.stat_digits[digit]
+                    stat_digit = stat_digit * stat_mask + 255 * (1 - stat_mask)
+                    h, w = stat_digit.shape[:2]
+                    yb, xr = yt + h, xl + w
+                    visu[yt:yb, xl:xr] = cv2.cvtColor(stat_digit, cv2.COLOR_GRAY2RGB)
+                    xl += 20
+
         fig = plt.figure("main")
         axes = fig.subplots(2)
         axes[0].imshow(team_img)
@@ -564,15 +616,16 @@ class TeamExtractor:
         axes[1].axis('off')
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
-    def save_team(self, frame, pet_names, status_names, xps, frame_nb):
-        self.save_team_img(frame, pet_names, status_names, xps, frame_nb)
-        turn, attacks, lives = 1, [-1] * 5, [-1] * 5
+    def save_team(self, frame, pet_names, status_names, xps, stats, frame_nb):
+        self.save_team_img(frame, pet_names, status_names, xps, stats, frame_nb)
+        turn = 1
         pets_reprs = []
         for i in range(5):
             if pet_names[i] is None:
                 continue
             status_name = "none" if status_names[i] == "Nothing" else status_names[i].replace(' ', '_').lower()
-            pets_reprs.append(f"({pet_names[i]} {attacks[i]} {lives[i]} {xps[i]} {status_name})")
+            attack, life = stats[i]
+            pets_reprs.append(f"({pet_names[i]} {attack} {life} {xps[i]} {status_name})")
 
         self.team_reprs.put(f"{turn} {' '.join(pets_reprs)}")
 
@@ -593,8 +646,8 @@ class TeamExtractor:
 
         while frame is not None:
             self.logger.info(f"[EXTRACTOR {extractor_id}] Processing frame {frame_nb}")
-            pets, status, xps = self.extract_team(frame)
-            self.save_team(frame, pets, status, xps, frame_nb)
+            pets, status, xps, stats = self.extract_team(frame)
+            self.save_team(frame, pets, status, xps, stats, frame_nb)
 
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of pets: {pets}")
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of status: {status}")
@@ -607,8 +660,8 @@ class TeamExtractor:
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
-            pets, status, xps = self.extract_team(frame)
-            self.save_team(frame, pets, status, xps, frame_nb)
+            pets, status, xps, stats = self.extract_team(frame)
+            self.save_team(frame, pets, status, xps, stats, frame_nb)
 
             self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
