@@ -647,12 +647,13 @@ class TeamExtractor:
             if pet_names[i] is None:
                 continue
 
+            pet_name = pet_names[i].replace(' ', '_').lower()
             if status_names[i] == "Nothing":
                 status_name = "none"
             else:
                 status_name = status_names[i].replace(' ', '_').lower().replace('_alt', '')
             attack, life = stats[i]
-            pets_reprs.append(f"({pet_names[i]} {attack} {life} {xps[i]} {status_name})")
+            pets_reprs.append(f"({pet_name} {attack} {life} {xps[i]} {status_name})")
 
         self.team_reprs.put((frame_nb, turn, ' '.join(pets_reprs)))
 
