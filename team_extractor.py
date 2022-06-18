@@ -103,6 +103,27 @@ def save_xp_digit(frame, spot, digit):
     img = Image.fromarray(xp_digit)
     img.save(f"assets/XP/xp_digit_{digit}.png")
 
+def save_attack_digit(frame, spot, digit):
+    # The digit 0 never lives alone -> take coords on an attack value of "10"
+    digit_spot = (slice(8, 40), slice(14, 37) if digit > 0 else slice(20, 43))
+    attack_digit_color = frame[TeamExtractor.COORDS["attacks"][spot]][digit_spot]
+    attack_digit = cv2.cvtColor(attack_digit_color, cv2.COLOR_RGB2GRAY)
+
+    h, w = attack_digit.shape[:2]
+    mask = np.zeros((h+2, w+2), np.uint8)
+    seed = (15, 15) if digit % 7 else (12, 5)
+    floodflags = 4 | cv2.FLOODFILL_MASK_ONLY | (255 << 8)
+    _, _, mask, _ = cv2.floodFill(attack_digit, mask, seed, (255, 0, 0), (25,)*3, (25,)*3, floodflags)
+
+    mask = mask[1:-1, 1:-1]
+    mask = cv2.dilate(mask, None)
+    mask = cv2.dilate(mask, None)
+
+    output = np.append(attack_digit_color, mask[..., np.newaxis], axis=2)
+    os.makedirs("assets/stats", exist_ok=True)
+    img = Image.fromarray(output)
+    img.save(f"assets/stats/stat_{digit}.png")
+
 def search_canny(img, init_min=400, init_max=800):
     fig = plt.figure("canny_search")
     ax = fig.subplots()
@@ -296,6 +317,13 @@ class TeamExtractor:
         self.xp_conversion_table = {(1, 0): 0, (1, 2): 1, (2, 0): 2,
                                     (2, 1): 3, (2, 3): 4, (3, 4): 5}
 
+        self.stat_digits = []
+        for i in range(10):
+            stat_digit = cv2.imread(f"assets/stats/stat_{i}.png", cv2.IMREAD_UNCHANGED)
+            stat_mask = stat_digit[:, :, 3] // 255
+            stat_digit = cv2.cvtColor(stat_digit, cv2.COLOR_BGR2GRAY)
+            self.stat_digits.append((stat_digit, stat_mask))
+
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
             capture.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
@@ -396,7 +424,6 @@ class TeamExtractor:
 
     def extract_xps(self, frame, spots):
         xps = []
-        hsv_areas = []
         for spot in range(5):
             if spot not in spots:
                 xps.append(None)
