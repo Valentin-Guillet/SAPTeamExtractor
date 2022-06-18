@@ -522,8 +522,20 @@ class TeamExtractor:
             if frame is None:
                 return None
 
-            res = cv2.matchTemplate(frame[coords], img, cv2.TM_SQDIFF, mask=mask)
-            if (res < 1.2*res.min()).sum() <= 20:
+            area = frame[coords]
+            res = cv2.matchTemplate(area, img, cv2.TM_SQDIFF, mask=mask)
+            _, _, loc, _ = cv2.minMaxLoc(res)
+            found_img = area[loc[1]:loc[1]+img.shape[0], loc[0]:loc[0]+img.shape[1]]
+
+            close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 15)
+            if mask is not None:
+                close_pixels *= mask.astype('bool')
+                mask_size = (mask != 0).sum()
+            else:
+                mask_size = img.size
+            closeness_score = 100 * close_pixels.sum() / mask_size
+
+            if (res < 1.2*res.min()).sum() <= 20 and closeness_score > 20:
                 if skip > 1:
                     frame_nb -= skip
                     skip = (1 if skip < 10 else skip // 2)
