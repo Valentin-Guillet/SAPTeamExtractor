@@ -201,6 +201,7 @@ class TeamExtractor:
     COORDS = {}
     COORDS["autoplay"] = (slice(58, 137), slice(674, 789))
     COORDS["hourglass"] = (slice(25, 56), slice(401, 423))
+    COORDS["turn"] = (slice(20, 60), slice(425, 470))
 
     COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
     COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
@@ -319,10 +320,16 @@ class TeamExtractor:
 
         self.stat_digits = []
         for i in range(10):
-            stat_digit = cv2.imread(f"assets/stats/stat_{i}.png", cv2.IMREAD_UNCHANGED)
+            stat_digit = cv2.imread(f"assets/digits/digit_{i}.png", cv2.IMREAD_UNCHANGED)
             stat_mask = stat_digit[:, :, 3] // 255
             stat_digit = cv2.cvtColor(stat_digit, cv2.COLOR_BGR2GRAY)
             self.stat_digits.append((stat_digit, stat_mask))
+
+        self.turn_digits = []
+        for i in range(10):
+            turn_digit = cv2.resize(self.stat_digits[i][0], (18, 26))
+            turn_mask = cv2.resize(self.stat_digits[i][1], (18, 26))
+            self.turn_digits.append((turn_digit, turn_mask))
 
     def get_frame(self, capture, frame_id=None):
         if frame_id is not None:
@@ -449,11 +456,12 @@ class TeamExtractor:
 
         return xps
 
-    def extract_stat(self, frame):
+    def extract_digit(self, frame, digit_set):
         found_digits = []
         for i in range(10):
-            digit, mask = self.stat_digits[i]
+            digit, mask = digit_set[i]
             res = cv2.matchTemplate(frame, digit, cv2.TM_SQDIFF, mask=mask)
+
             if res.min() < 1e6:
                 _, xs = np.where(res <= 3*res.min())
 
@@ -482,8 +490,8 @@ class TeamExtractor:
             attack_area = frame[self.COORDS["attacks"][spot]]
             life_area = frame[self.COORDS["lives"][spot]]
 
-            attack = self.extract_stat(attack_area)
-            life = self.extract_stat(life_area)
+            attack = self.extract_digit(attack_area, self.stat_digits)
+            life = self.extract_digit(life_area, self.stat_digits)
             stats.append((attack, life))
 
         return stats
@@ -500,6 +508,11 @@ class TeamExtractor:
         stats = self.extract_stats(frame, spots)
         self.team_extracted += 1
         return pets, status, xps, stats
+
+    def extract_turn(self, frame):
+        turn_area = cv2.cvtColor(frame[self.COORDS["turn"]], cv2.COLOR_RGB2GRAY)
+        turn = self.extract_digit(turn_area, self.turn_digits)
+        return turn
 
     def goto_next(self, capture, coords, img, mask=None):
         frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
@@ -534,25 +547,24 @@ class TeamExtractor:
         frame = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass)
         if frame is not None:
             # Wait one frame to pass black screen
-            self.get_frame(capture)
+            frame = self.get_frame(capture)
+            turn = self.extract_turn(frame)
+        else:
+            turn = None
+
+        return turn
 
     def find_battles(self, worker_id, init_frame, end_frame):
         self.logger.info(f"[WORKER {worker_id}] Running between frames {init_frame} and {end_frame}")
         capture = cv2.VideoCapture(self.video_file)
         capture.set(cv2.CAP_PROP_POS_FRAMES, init_frame)
 
-        # If in battle, skip it
-        frame = self.get_frame(capture)
-        res = cv2.matchTemplate(frame[self.COORDS["autoplay_area"]], self.autoplay, cv2.TM_SQDIFF, mask=self.autoplay_mask)
-        if (res <= 1.2*res.min()).sum() <= 20:
-            self.logger.info(f"[WORKER {worker_id}] Starting in the middle of a battle ! Skipping...")
-            self.goto_next_turn(capture)
-
+        turn = self.goto_next_turn(capture)
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None and frame_nb < end_frame:
             self.logger.info(f"[WORKER {worker_id}] Battle found ! Putting in queue")
-            self.queue.put((frame, frame_nb))
-            self.goto_next_turn(capture)
+            self.queue.put((frame, frame_nb, turn))
+            turn = self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
         self.logger.info(f"[WORKER {worker_id}] Done !")
@@ -616,9 +628,8 @@ class TeamExtractor:
         axes[1].axis('off')
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
-    def save_team(self, frame, pet_names, status_names, xps, stats, frame_nb):
+    def save_team(self, frame, turn, pet_names, status_names, xps, stats, frame_nb):
         self.save_team_img(frame, pet_names, status_names, xps, stats, frame_nb)
-        turn = 1
         pets_reprs = []
         for i in range(5):
             if pet_names[i] is None:
@@ -642,28 +653,29 @@ class TeamExtractor:
 
     def extract_teams(self, extractor_id):
         self.logger.info(f"[EXTRACTOR {extractor_id}] Initializing")
-        frame, frame_nb = self.queue.get()
+        frame, frame_nb, turn = self.queue.get()
 
         while frame is not None:
             self.logger.info(f"[EXTRACTOR {extractor_id}] Processing frame {frame_nb}")
             pets, status, xps, stats = self.extract_team(frame)
-            self.save_team(frame, pets, status, xps, stats, frame_nb)
+            self.save_team(frame, turn, pets, status, xps, stats, frame_nb)
 
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of pets: {pets}")
             self.logger.info(f"[EXTRACTOR {extractor_id}] List of status: {status}")
-            frame, frame_nb = self.queue.get()
+            frame, frame_nb, turn = self.queue.get()
 
         self.logger.info(f"[EXTRACTOR {extractor_id}] Extractor done !")
 
     def run_sync(self):
         capture = cv2.VideoCapture(self.video_file)
+        turn = self.goto_next_turn(capture)
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
             pets, status, xps, stats = self.extract_team(frame)
-            self.save_team(frame, pets, status, xps, stats, frame_nb)
+            self.save_team(frame, turn, pets, status, xps, stats, frame_nb)
 
-            self.goto_next_turn(capture)
+            turn = self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
         self.write_teams()
@@ -694,7 +706,7 @@ class TeamExtractor:
         for battle_finder in battle_finders:
             battle_finder.join()
         for _ in range(nb_extractors):
-            self.queue.put((None, -1))
+            self.queue.put((None, -1, -1))
         for team_extractor in team_extractors:
             team_extractor.join()
 
