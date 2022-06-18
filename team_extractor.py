@@ -638,7 +638,14 @@ class TeamExtractor:
             attack, life = stats[i]
             pets_reprs.append(f"({pet_names[i]} {attack} {life} {xps[i]} {status_name})")
 
-        self.team_reprs.put(f"{turn} {' '.join(pets_reprs)}")
+        self.team_reprs.put((frame_nb, turn, ' '.join(pets_reprs)))
+
+    def remove_replays(self, teams):
+        new_teams = [teams[0]]
+        for team in teams:
+            if team[2] != new_teams[-1][2]:
+                new_teams.append(team)
+        return new_teams
 
     def write_teams(self):
         team_file = os.path.join(self.output_path, "team_list.txt")
@@ -648,8 +655,13 @@ class TeamExtractor:
         teams = []
         while not self.team_reprs.empty():
             teams.append(self.team_reprs.get())
+
+        teams.sort()
+        teams = self.remove_replays(teams)
+        teams_str = '\n'.join([f"{turn} {team_str}" for _, turn, team_str in teams])
+
         with open(team_file, 'w') as file:
-            file.write('\n'.join(teams))
+            file.write(teams_str)
 
     def extract_teams(self, extractor_id):
         self.logger.info(f"[EXTRACTOR {extractor_id}] Initializing")
