@@ -634,7 +634,11 @@ class TeamExtractor:
         for i in range(5):
             if pet_names[i] is None:
                 continue
-            status_name = "none" if status_names[i] == "Nothing" else status_names[i].replace(' ', '_').lower()
+
+            if status_names[i] == "Nothing":
+                status_name = "none"
+            else:
+                status_name = status_names[i].replace(' ', '_').lower().replace('_alt', '')
             attack, life = stats[i]
             pets_reprs.append(f"({pet_names[i]} {attack} {life} {xps[i]} {status_name})")
 
