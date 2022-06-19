@@ -52,7 +52,6 @@ def show(*imgs):
     plt.show()
 
 def save_autoplay_icon(frame):
-    # From frame 2800
     autoplay = frame[TeamExtractor.COORDS["autoplay_area"]]
     contour = cv2.Canny(autoplay, 100, 200)
     h, w = contour.shape
@@ -71,8 +70,8 @@ def save_autoplay_icon(frame):
     mask = mask2.copy()
     mask = np.expand_dims(mask[1:-1, 1:-1], axis=2)
 
-    autoplay = autoplay[15:-15, 15:-15]
-    mask = mask[15:-15, 15:-15]
+    autoplay = autoplay[10:-10, 10:-10]
+    mask = mask[10:-10, 10:-10]
 
     autoplay *= mask
     autoplay = np.c_[autoplay, 255*np.ones((*autoplay.shape[:2], 1, ))]
