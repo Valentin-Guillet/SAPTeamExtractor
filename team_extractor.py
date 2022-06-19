@@ -519,7 +519,7 @@ class TeamExtractor:
         frame = self.get_frame(capture)
         while True:
             if frame is None:
-                return None
+                return None, -1
 
             area = frame[coords]
             res = cv2.matchTemplate(area, img, cv2.TM_SQDIFF, mask=mask)
@@ -545,39 +545,37 @@ class TeamExtractor:
             frame_nb += skip
             frame = self.get_frame(capture, frame_nb)
 
-        return frame
+        return frame, frame_nb + 1
 
     def goto_next_battle(self, capture):
-        frame = self.goto_next(capture, self.COORDS["autoplay_area"], self.autoplay, self.autoplay_mask)
-        if frame is not None:
-            frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
-        else:
-            frame_nb = -1
-        return frame, frame_nb
+        return self.goto_next(capture, self.COORDS["autoplay_area"], self.autoplay, self.autoplay_mask)
 
     def goto_next_turn(self, capture):
-        frame = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass)
-        if frame is not None:
-            # Wait one frame to pass black screen
-            frame = self.get_frame(capture)
-            turn = self.extract_turn(frame)
-        else:
-            turn = None
-
-        return turn
+        frame, frame_nb = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass)
+        if frame is None:
+            return None, -1
+        return self.extract_turn(frame), frame_nb
 
     def find_battles(self, worker_id, init_frame, end_frame):
         self.logger.info(f"[WORKER {worker_id}] Running between frames {init_frame} and {end_frame}")
         capture = cv2.VideoCapture(self.video_file)
         capture.set(cv2.CAP_PROP_POS_FRAMES, init_frame)
 
-        turn = self.goto_next_turn(capture)
+        turn, _ = self.goto_next_turn(capture)
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None and frame_nb < end_frame:
-            self.logger.info(f"[WORKER {worker_id}] Battle found ! Putting in queue")
+            self.logger.info(f"[WORKER {worker_id}] Battle found at frame {frame_nb} ! Putting in queue")
             self.queue.put((frame, frame_nb, turn))
-            turn = self.goto_next_turn(capture)
+            turn, turn_frame_nb = self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
+
+        # Process battles after the end that could not be computed by next worker
+        # (because of turn_frame before its starting frame)
+        if frame is not None and turn_frame_nb < end_frame <= frame_nb:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, end_frame)
+            _, new_turn_frame_nb = self.goto_next_turn(capture)
+            if new_turn_frame_nb > frame_nb:
+                self.queue.put((frame, frame_nb, turn))
 
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
@@ -697,14 +695,14 @@ class TeamExtractor:
 
     def run_sync(self):
         capture = cv2.VideoCapture(self.video_file)
-        turn = self.goto_next_turn(capture)
+        turn, _ = self.goto_next_turn(capture)
         frame, frame_nb = self.goto_next_battle(capture)
         while frame is not None:
             self.logger.info(f"Frame {frame_nb}: battle found")
             pets, status, xps, stats = self.extract_team(frame)
             self.save_team(frame, turn, pets, status, xps, stats, frame_nb)
 
-            turn = self.goto_next_turn(capture)
+            turn, _ = self.goto_next_turn(capture)
             frame, frame_nb = self.goto_next_battle(capture)
 
         self.write_teams()
