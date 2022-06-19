@@ -514,7 +514,7 @@ class TeamExtractor:
         return turn
 
     def goto_next(self, capture, coords, img, mask=None):
-        frame_nb = capture.get(cv2.CAP_PROP_POS_FRAMES)
+        frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
         skip = 60
         frame = self.get_frame(capture)
         while True:
@@ -526,15 +526,16 @@ class TeamExtractor:
             _, _, loc, _ = cv2.minMaxLoc(res)
             found_img = area[loc[1]:loc[1]+img.shape[0], loc[0]:loc[0]+img.shape[1]]
 
-            close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 15)
+            close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 25)
             if mask is not None:
                 close_pixels *= mask.astype('bool')
                 mask_size = (mask != 0).sum()
             else:
-                mask_size = img.size
+                mask_size = close_pixels.size
             closeness_score = 100 * close_pixels.sum() / mask_size
+            threshold = 50 if mask is not None else 85
 
-            if (res < 1.2*res.min()).sum() <= 20 and closeness_score > 20:
+            if (res < 1.2*res.min()).sum() <= 20 and closeness_score > threshold:
                 if skip > 1:
                     frame_nb -= skip
                     skip = (1 if skip < 10 else skip // 2)
