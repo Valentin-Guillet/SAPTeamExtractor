@@ -222,7 +222,7 @@ class TeamExtractor:
             cls.COORDS["attacks"].append((slice(h+152, h+201), slice(666+delta*i, 719+delta*i)))
             cls.COORDS["lives"].append((slice(h+152, h+201), slice(724+delta*i, 778+delta*i)))
             cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+delta*i, 735+delta*i)))
-            cls.COORDS["pets"].append((slice(h+25, h+146), slice(661+delta*i, 783+delta*i)))
+            cls.COORDS["pets"].append((slice(h+22, h+149), slice(658+delta*i, 786+delta*i)))
             cls.COORDS["xp_digits"].append((slice(h+7, h+42), slice(756+delta*i, 784+delta*i)))
             cls.COORDS["xp_bars"].append((slice(h+40, h+56), slice(730+delta*i, 784+delta*i)))
 
@@ -373,7 +373,7 @@ class TeamExtractor:
                 team.append(None)
                 continue
 
-            pet_area = frame[self.COORDS["pets"][spot]]
+            pet_area = frame[self.COORDS["pets"][spot]][20:]
             scores = {}
             for pet_name, pet in self.pets.items():
                 scores[pet_name] = self.get_pet_score(pet_area, pet)
