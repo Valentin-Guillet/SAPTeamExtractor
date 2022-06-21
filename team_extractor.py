@@ -459,7 +459,7 @@ class TeamExtractor:
 
         return xps
 
-    def extract_digit(self, frame, digit_set):
+    def extract_digit(self, frame, digit_set, filter_one=False):
         found_digits = []
         for i in range(10):
             digit, mask = digit_set[i]
@@ -476,8 +476,18 @@ class TeamExtractor:
                         found_digits.append((x, i))
                     prev_x = x
 
+        found_digits.sort()
+
+        # Filter out 1 after 4 because it's basically impossible and the right
+        # section of the 4 looks like a 1
+        if filter_one:
+            for i in range(len(found_digits)-2, -1, -1):
+                close = (abs(found_digits[i][0] - found_digits[i+1][0]) < 5)
+                if close and found_digits[i][1] == 4 and found_digits[i+1][1] == 1:
+                    found_digits.pop(i+1)
+
         value = 0
-        for _, digit in sorted(found_digits):
+        for _, digit in found_digits:
             value = 10 * value + digit
 
         return value
@@ -514,7 +524,11 @@ class TeamExtractor:
 
     def extract_turn(self, frame):
         turn_area = cv2.cvtColor(frame[self.COORDS["turn"]], cv2.COLOR_RGB2GRAY)
-        turn = self.extract_digit(turn_area, self.turn_digits)
+        turn = self.extract_digit(turn_area, self.turn_digits, True)
+
+        # The very first frames when running the game start at 0
+        if turn == 0:
+            turn = 1
         return turn
 
     def goto_next(self, capture, coords, img, mask=None):
