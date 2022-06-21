@@ -217,13 +217,14 @@ class TeamExtractor:
         cls.COORDS["team"] = (slice(height, height+210), slice(660, 1275))
 
         h = height
+        delta = 119 + (h > 400)
         for i in range(5):
-            cls.COORDS["attacks"].append((slice(h+152, h+201), slice(670+120*i, 719+120*i)))
-            cls.COORDS["lives"].append((slice(h+152, h+201), slice(729+120*i, 778+120*i)))
-            cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+120*i, 735+120*i)))
-            cls.COORDS["pets"].append((slice(h+22, h+149), slice(658+120*i, 786+120*i)))
-            cls.COORDS["xp_digits"].append((slice(h+7, h+41), slice(761+120*i, 784+120*i)))
-            cls.COORDS["xp_bars"].append((slice(h+40, h+56), slice(734+120*i, 784+120*i)))
+            cls.COORDS["attacks"].append((slice(h+152, h+201), slice(666+delta*i, 719+delta*i)))
+            cls.COORDS["lives"].append((slice(h+152, h+201), slice(724+delta*i, 778+delta*i)))
+            cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+delta*i, 735+delta*i)))
+            cls.COORDS["pets"].append((slice(h+25, h+146), slice(661+delta*i, 783+delta*i)))
+            cls.COORDS["xp_digits"].append((slice(h+7, h+42), slice(756+delta*i, 784+delta*i)))
+            cls.COORDS["xp_bars"].append((slice(h+40, h+56), slice(730+delta*i, 784+delta*i)))
 
     def __init__(self, video_file, output_path):
         self.video_file = video_file
@@ -351,7 +352,7 @@ class TeamExtractor:
             inter = frame[self.COORDS["inter"][spot]]
             white_pixels = (inter.mean(axis=2) > 245).sum()
 
-            if white_pixels >= 400:
+            if white_pixels >= 350:
                 spots.append(spot)
         return spots
 
@@ -415,7 +416,8 @@ class TeamExtractor:
                 for size in range(25, 50, 5):
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
-                    if (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 60) // 2 > 30:
+                    score = (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 60) // 2
+                    if score > 30:
                         all_status.append(status_name)
                         break
 
@@ -436,20 +438,22 @@ class TeamExtractor:
                 continue
 
             xp_digit_area = frame[self.COORDS["xp_digits"][spot]]
-            scores = []
+            digit_scores = []
             for xp_digit in self.xp_digits:
-                scores.append(cv2.matchTemplate(xp_digit_area, xp_digit, cv2.TM_SQDIFF))
-            xp_digit = min(range(3), key=lambda i: scores[i]) + 1
+                res = cv2.matchTemplate(xp_digit_area, xp_digit, cv2.TM_SQDIFF)
+                digit_scores.append(res.min())
+            xp_digit = min(range(3), key=lambda i: digit_scores[i]) + 1
 
             if xp_digit == 3:
                 xps.append(5)
                 continue
 
             xp_bar_area = frame[self.COORDS["xp_bars"][spot]]
-            scores = []
+            bar_scores = []
             for xp_bar in self.xp_bars:
-                scores.append(cv2.matchTemplate(xp_bar_area, xp_bar, cv2.TM_SQDIFF))
-            xp_bar_value = min(range(5), key=lambda i: scores[i])
+                res = cv2.matchTemplate(xp_bar_area, xp_bar, cv2.TM_SQDIFF)
+                bar_scores.append(res.min())
+            xp_bar_value = min(range(5), key=lambda i: bar_scores[i])
 
             xps.append(self.xp_conversion_table[(xp_digit, xp_bar_value)])
 
@@ -533,7 +537,7 @@ class TeamExtractor:
             else:
                 mask_size = close_pixels.size
             closeness_score = 100 * close_pixels.sum() / mask_size
-            threshold = 50 if mask is not None else 85
+            threshold = 50 if mask is not None else 80
 
             if (res < 1.2*res.min()).sum() <= 20 and closeness_score > threshold:
                 if skip > 1:
