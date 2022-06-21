@@ -416,7 +416,7 @@ class TeamExtractor:
                 for size in range(25, 50, 5):
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
-                    score = (closeness_score - 35) + (20 - nb_peaks) + (contours_score - 60) // 2
+                    score = (closeness_score - 36) + (20 - nb_peaks) + (contours_score - 60) // 2
                     if score > 30:
                         all_status.append(status_name)
                         break
