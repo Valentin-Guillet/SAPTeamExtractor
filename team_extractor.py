@@ -217,19 +217,20 @@ class TeamExtractor:
     COORDS["xp_digits"] = []
     COORDS["xp_bars"] = []
 
-    @classmethod
-    def _update_coords(cls, height):
-        cls.COORDS["team"] = (slice(height, height+210), slice(660, 1275))
+    def set_coords(self, frame):
+        w0 = frame.shape[1] // 2
+        res = cv2.matchTemplate(frame[:, w0:, ...], self.lvl, cv2.TM_SQDIFF)
 
-        h = height
-        delta = 119 + (h > 400)
+        _, _, (w, h), _ = cv2.minMaxLoc(res)
+        w = w0 + w - (w // 120) * 120
         for i in range(5):
-            cls.COORDS["attacks"].append((slice(h+152, h+201), slice(666+delta*i, 719+delta*i)))
-            cls.COORDS["lives"].append((slice(h+152, h+201), slice(724+delta*i, 778+delta*i)))
-            cls.COORDS["inter"].append((slice(h+161, h+193), slice(710+delta*i, 735+delta*i)))
-            cls.COORDS["pets"].append((slice(h+22, h+149), slice(658+delta*i, 786+delta*i)))
-            cls.COORDS["xp_digits"].append((slice(h+7, h+42), slice(756+delta*i, 784+delta*i)))
-            cls.COORDS["xp_bars"].append((slice(h+40, h+56), slice(730+delta*i, 784+delta*i)))
+            self.COORDS["attacks"].append((slice(h+132, h+183), slice(w-69+120*i, w-13+120*i)))
+            self.COORDS["lives"].append((slice(h+132, h+183), slice(w-8+120*i, w+43+120*i)))
+            self.COORDS["inter"].append((slice(h+140, h+174), slice(w-21+120*i, w-4+120*i)))
+            self.COORDS["pets"].append((slice(h+10, h+130), slice(w-78+120*i, w+55+120*i)))
+            self.COORDS["xp_digits"].append((slice(h-15, h+24), slice(w+22+120*i, w+52+120*i)))
+            self.COORDS["xp_bars"].append((slice(h+18, h+38), slice(w-5+120*i, w+53+120*i)))
+        self.COORDS["team"] = (slice(h-25, h+190), slice(660, 1275))
 
     def __init__(self, video_file, output_path):
         self.video_file = video_file
@@ -247,7 +248,6 @@ class TeamExtractor:
         if not self.logger.handlers:
             self.logger.addHandler(logging.StreamHandler())
 
-        self.team_extracted = 0
         self.team_reprs = multiprocessing.Queue()
 
     def _load_pets(self):
@@ -345,11 +345,6 @@ class TeamExtractor:
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         return frame
-
-    def get_team_height(self, frame):
-        res = cv2.matchTemplate(frame, self.lvl, cv2.TM_SQDIFF)
-        _, _, loc, _ = cv2.minMaxLoc(res)
-        return loc[1] - 20
 
     def find_spots(self, frame):
         spots = []
@@ -514,16 +509,14 @@ class TeamExtractor:
         return stats
 
     def extract_team(self, frame):
-        if self.team_extracted == 0:
-            team_height = self.get_team_height(frame)
-            self._update_coords(team_height)
+        if not self.COORDS["pets"]:
+            self.set_coords(frame)
 
         spots = self.find_spots(frame)
         pets = self.extract_pets(frame, spots)
         status = self.extract_status(frame, pets, spots)
         xps = self.extract_xps(frame, spots)
         stats = self.extract_stats(frame, spots)
-        self.team_extracted += 1
         return pets, status, xps, stats
 
     def extract_turn(self, frame):
