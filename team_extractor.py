@@ -606,9 +606,21 @@ class TeamExtractor:
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
 
-    def save_team_img(self, frame, pet_names, status_names, xps, stats, frame_nb):
+    def save_team_img(self, frame, turn, pet_names, status_names, xps, stats, frame_nb):
         team_img = frame[self.COORDS["team"]]
-        shape = (int(1.6*team_img.shape[0]), team_img.shape[1], 3)
+        shape = (int(1.8*team_img.shape[0]), team_img.shape[1], 3)
+
+        visu_turn = 255 * np.ones((shape[0], 100, 3), np.uint8)
+        h, w = self.hourglass.shape[:2]
+        visu_turn[180:180+h, 5:5+w] = self.hourglass
+        x = 45
+        for i in map(int, str(turn)):
+            digit, mask = self.turn_digits[i]
+            digit = digit[..., np.newaxis].repeat(3, axis=2)
+            h, w = digit.shape[:2]
+            visu_turn[187:187+h, x:x+w] = np.maximum(digit, 255 * (1 - mask)[..., np.newaxis])
+            x += 25
+
         visu = 255 * np.ones(shape, np.uint8)
         for i in range(5):
             if pet_names[i] is None:
@@ -651,6 +663,7 @@ class TeamExtractor:
                     visu[y:y+h, x:x+w] = cv2.cvtColor(stat_digit, cv2.COLOR_GRAY2RGB)
                     x += 22
 
+        visu = np.hstack((visu_turn, visu))
         fig = plt.figure("main")
         axes = fig.subplots(2)
         axes[0].imshow(team_img)
@@ -661,7 +674,7 @@ class TeamExtractor:
         fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
 
     def save_team(self, frame, turn, pet_names, status_names, xps, stats, frame_nb):
-        self.save_team_img(frame, pet_names, status_names, xps, stats, frame_nb)
+        self.save_team_img(frame, turn, pet_names, status_names, xps, stats, frame_nb)
         pets_reprs = []
         for i in range(5):
             if pet_names[i] is None:
