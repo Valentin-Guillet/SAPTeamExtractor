@@ -373,10 +373,16 @@ class TeamExtractor:
                 team.append(None)
                 continue
 
-            pet_area = frame[self.COORDS["pets"][spot]][20:]
+            pet_area = frame[self.COORDS["pets"][spot]]
             scores = {}
             for pet_name, pet in self.pets.items():
-                scores[pet_name] = self.get_pet_score(pet_area, pet)
+                if pet_name == "Mosquito":
+                    area = pet_area
+                elif pet_name == "Scorpion":
+                    area = pet_area[:, 10:-10, :]
+                else:
+                    area = pet_area[20:]
+                scores[pet_name] = self.get_pet_score(area, pet)
 
             team.append(max(scores, key=scores.get))
 
