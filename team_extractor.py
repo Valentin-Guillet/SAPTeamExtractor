@@ -144,41 +144,46 @@ def search_canny(img, init_min=400, init_max=800):
 
 
 class ImgStruct:
-    def __init__(self, img, mask):
-        self.shape = img.shape[:2]
-        self.init_shape = self.shape
+    def __init__(self, img, mask, trim=False):
+        self.curr_shape = img.shape[:2]
+        self.init_img = img
+        self.init_mask = mask
 
-        self.resized_imgs = {self.shape: img}
-        self.resized_masks = {self.shape: mask}
+        if trim:
+            img, mask = self.trim(img, mask)
+        self.resized_imgs = {self.curr_shape: img}
+        self.resized_masks = {self.curr_shape: mask}
         self.contours = {}
 
     @property
-    def height(self):
-        return self.shape[0]
-
-    @property
-    def width(self):
-        return self.shape[1]
-
-    @property
     def img(self):
-        return self.resized_imgs[self.shape]
+        return self.resized_imgs[self.curr_shape]
 
     @property
     def mask(self):
-        return self.resized_masks[self.shape]
+        return self.resized_masks[self.curr_shape]
+
+    @property
+    def shape(self):
+        return self.resized_imgs[self.curr_shape].shape
+
+    def trim(self, img, mask):
+        xs, ys = np.where(mask)
+        x_min, x_max = xs.min(), xs.max()
+        y_min, y_max = ys.min(), ys.max()
+        return img[x_min:x_max+1, y_min:y_max+1], mask[x_min:x_max+1, y_min:y_max+1]
 
     def resize(self, new_shape):
         if new_shape not in self.resized_imgs:
-            resized_img = cv2.resize(self.resized_imgs[self.init_shape], new_shape)
-            resized_mask = cv2.resize(self.resized_masks[self.init_shape], new_shape)
+            resized_img = cv2.resize(self.init_img, new_shape)
+            resized_mask = cv2.resize(self.init_mask, new_shape)
             self.resized_imgs[new_shape] = resized_img
             self.resized_masks[new_shape] = resized_mask
 
-        self.shape = new_shape
+        self.curr_shape = new_shape
 
     def _compute_contours(self):
-        h, w = self.shape[:2]
+        h, w = self.img.shape[:2]
         contours = np.zeros((h+2, w+2), dtype=np.bool_)
         contours[1:h+1, 1:w+1] = cv2.Canny(self.img, 400, 800)
         orig_size = (contours != 0).sum()
@@ -190,9 +195,9 @@ class ImgStruct:
         return contours, orig_size
 
     def get_contours(self):
-        if self.shape not in self.contours:
-            self.contours[self.shape] = self._compute_contours()
-        return self.contours[self.shape]
+        if self.curr_shape not in self.contours:
+            self.contours[self.curr_shape] = self._compute_contours()
+        return self.contours[self.curr_shape]
 
 
 class TeamExtractor:
@@ -276,7 +281,7 @@ class TeamExtractor:
                 img = img[30:, :]
                 mask = mask[30:, :]
 
-            self.pets[pet_name] = ImgStruct(img, mask)
+            self.pets[pet_name] = ImgStruct(img, mask, trim=True)
 
     def _load_status(self):
         self.status = {}
@@ -384,10 +389,9 @@ class TeamExtractor:
 
     def get_status_score(self, frame, status, shape):
         status.resize(shape)
-        frame = frame[10:-10, ...]
         res = cv2.matchTemplate(frame, status.img, cv2.TM_SQDIFF, mask=status.mask)
         _, _, loc, _ = cv2.minMaxLoc(res)
-        found_img = frame[loc[1]:loc[1]+shape[0], loc[0]:loc[0]+shape[1]]
+        found_img = frame[loc[1]:loc[1]+status.shape[0], loc[0]:loc[0]+status.shape[1]]
 
         # Closeness score: nb of pixels whose RGB values are close to status img (to maximize)
         close_pixels = (np.abs(found_img.astype(np.int16) - status.img).mean(axis=2) < 15) * status.mask
@@ -608,16 +612,15 @@ class TeamExtractor:
             pet = self.whole_pets[pet_names[i]]
 
             h, w = pet.shape[:2]
-            yt, xl = 5, 15 + 120*i
-            yb, xr = yt + h, xl + w
-            visu[yt:yb, xl:xr] = np.maximum(pet.img, 255 * (1 - pet.mask)[..., np.newaxis])
+            y, x = 2, 15 + 120*i
+            visu[y:y+h, x:x+w] = np.maximum(pet.img, 255 * (1 - pet.mask)[..., np.newaxis])
 
-            yt, xl = yb + 15, 40 + 120*i
-            yb, xr = yt + 35, xl + 35
+            y, x = y + 110, 43 + 120*i
             if status_names[i] != 'Nothing':
                 status = self.status[status_names[i]]
                 status.resize((35, 35))
-                visu[yt:yb, xl:xr] = np.maximum(status.img, 255 * (1 - status.mask)[..., np.newaxis])
+                h, w = status.shape[:2]
+                visu[y:y+h, x:x+w] = np.maximum(status.img, 255 * (1 - status.mask)[..., np.newaxis])
 
             for key, value in self.xp_conversion_table.items():
                 if value == xps[i]:
@@ -625,27 +628,24 @@ class TeamExtractor:
                     break
             xp_digit = self.xp_digits[digit - 1]
             h, w = xp_digit.shape[:2]
-            yt, xl = yb + 15, 55 + 120*i
-            yb, xr = yt + h, xl + w
-            visu[yt:yb, xl:xr] = xp_digit
+            y, x = y + 50, 55 + 120*i
+            visu[y:y+h, x:x+w] = xp_digit
 
             xp_bar = self.xp_bars[bar]
             h, w = xp_bar.shape[:2]
-            yt, xl = yb + 15, 40 + 120*i
-            yb, xr = yt + h, xl + w
-            visu[yt:yb, xl:xr] = xp_bar
+            y, x = y + 50, 40 + 120*i
+            visu[y:y+h, x:x+w] = xp_bar
 
             for j in range(2):
                 stat = stats[i][j]
                 stat_digits = list(map(int, str(stat)))
-                yt, xl = yb + 15, 40 + 120*i
+                y, x = y + 50, 40 + 120*i
                 for digit in stat_digits:
                     stat_digit, stat_mask = self.stat_digits[digit]
                     stat_digit = stat_digit * stat_mask + 255 * (1 - stat_mask)
                     h, w = stat_digit.shape[:2]
-                    yb, xr = yt + h, xl + w
-                    visu[yt:yb, xl:xr] = cv2.cvtColor(stat_digit, cv2.COLOR_GRAY2RGB)
-                    xl += 20
+                    visu[y:y+h, x:x+w] = cv2.cvtColor(stat_digit, cv2.COLOR_GRAY2RGB)
+                    x += 22
 
         fig = plt.figure("main")
         axes = fig.subplots(2)
