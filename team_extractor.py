@@ -227,7 +227,7 @@ class TeamExtractor:
             self.COORDS["attacks"].append((slice(h+132, h+183), slice(w-69+120*i, w-13+120*i)))
             self.COORDS["lives"].append((slice(h+132, h+183), slice(w-8+120*i, w+43+120*i)))
             self.COORDS["inter"].append((slice(h+140, h+174), slice(w-21+120*i, w-4+120*i)))
-            self.COORDS["pets"].append((slice(h+10, h+130), slice(w-78+120*i, w+55+120*i)))
+            self.COORDS["pets"].append((slice(h+10, h+128), slice(w-78+120*i, w+55+120*i)))
             self.COORDS["xp_digits"].append((slice(h-15, h+24), slice(w+22+120*i, w+52+120*i)))
             self.COORDS["xp_bars"].append((slice(h+18, h+38), slice(w-5+120*i, w+53+120*i)))
         self.COORDS["team"] = (slice(h-25, h+190), slice(660, 1275))
@@ -418,8 +418,7 @@ class TeamExtractor:
 
             pet_area = frame[self.COORDS["pets"][spot]]
             for status_name, status in self.status.items():
-                possible_sizes = list(range(25, 50, 5))
-                prev_score = -1
+                possible_sizes = list(range(25, 50, 5)) + [28]
                 for size in possible_sizes:
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
@@ -427,9 +426,6 @@ class TeamExtractor:
                     if score > 30:
                         all_status.append(status_name)
                         break
-                    if size % 5 == 0 and score > 5 and prev_score > 5:
-                        possible_sizes.append(size - 2)
-                    prev_score = score
 
                 else:
                     continue
