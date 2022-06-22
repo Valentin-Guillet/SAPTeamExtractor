@@ -473,10 +473,10 @@ class TeamExtractor:
         found_digits = []
         for i in range(10):
             digit, mask = digit_set[i]
-            res = cv2.matchTemplate(frame, digit, cv2.TM_SQDIFF, mask=mask)
+            res = 1000 * cv2.matchTemplate(frame, digit, cv2.TM_SQDIFF_NORMED, mask=mask)
 
-            if res.min() < 1e6:
-                _, xs = np.where(res <= 3*res.min())
+            if res.min() < 100:
+                _, xs = np.where(res <= max(10, 3*res.min()))
 
                 # Clustering: locations should be more than 5 pixels apart
                 xs.sort()
