@@ -17,7 +17,7 @@ def parse_args():
     parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
     parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
     parser.add_argument('-d', '--nb_downloaders', type=int, default=2, help="Number of video downloaders to run in parallel")
-    parser.add_argument('--download_only', action='store_true', help="Number of video downloaders to run in parallel")
+    parser.add_argument('--download_only', action='store_true', help="Only download videos without processing them")
     return parser.parse_args()
 
 class VideoProcessor:

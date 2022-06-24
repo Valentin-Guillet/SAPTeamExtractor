@@ -10,7 +10,10 @@ import matplotlib.pyplot as plt
 import matplotlib.widgets as wdg
 import numpy as np
 
-from PIL import Image
+try:
+    from PIL import Image
+except ModuleNotFoundError:
+    pass
 
 
 PET_SIZE = 100
@@ -18,11 +21,11 @@ PET_SIZE = 100
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="Path to the video to process")
-    parser.add_argument('-o', '--output', type=str, help="Dir in which to save output")
-    parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
-    parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
-    parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes")
+    parser.add_argument('path', type=str, help="Path to the video to process.")
+    parser.add_argument('-o', '--output', type=str, help="Dir in which to save output. Default to the path of the video to process.")
+    parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel.")
+    parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel.")
+    parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes.")
     args = parser.parse_args()
 
     if args.output is None:
