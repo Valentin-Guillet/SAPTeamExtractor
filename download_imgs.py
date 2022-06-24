@@ -10,7 +10,7 @@ import numpy as np
 from PIL import Image
 
 
-DATA_FILE = "data.json"
+DATA_FILE = "assets/data.json"
 WRONG_COMMITS = ["Bus", "Boar", "Dromedary"]
 
 SAP_WIKI_URL = {"Dirty Rat": "9/92/DirtyRat_%28Token%29.png",
