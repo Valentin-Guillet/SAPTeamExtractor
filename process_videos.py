@@ -12,7 +12,8 @@ from team_extractor import TeamExtractor
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="Path to a list of video ids to process")
+    parser.add_argument('paths', type=str, nargs='+',
+                        help="Video ids or paths to a list of video ids to process")
     parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel")
     parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel")
     parser.add_argument('-d', '--nb_downloaders', type=int, default=2, help="Number of video downloaders to run in parallel")
@@ -64,9 +65,16 @@ class VideoProcessor:
         # Remove video
         os.remove(video_file)
 
-    def process_list(self, path, nb_finders, nb_extractors, nb_downloaders, download_only):
-        with open(path, 'r') as file:
-            video_ids = file.read().split('\n')[:-1]
+    def process_list(self, paths, nb_finders, nb_extractors, nb_downloaders, download_only):
+        video_ids = []
+        for path in paths:
+            if os.path.isfile(path):
+                with open(path, 'r') as file:
+                    video_ids.extend(file.read().split('\n')[:-1])
+            elif len(path) == 11:    # Video id
+                video_ids.append(path)
+            else:
+                print(f"Arg {path} is not a file nor seems to be a youtube video id")
 
         self.download_only = download_only
         pool = multiprocessing.Pool(processes=nb_downloaders)
@@ -87,5 +95,5 @@ class VideoProcessor:
 if __name__ == '__main__':
     args = parse_args()
     processor = VideoProcessor()
-    processor.process_list(args.path, args.nb_finders, args.nb_extractors, args.nb_downloaders, args.download_only)
+    processor.process_list(args.paths, args.nb_finders, args.nb_extractors, args.nb_downloaders, args.download_only)
 
