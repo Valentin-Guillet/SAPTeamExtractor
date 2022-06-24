@@ -210,6 +210,8 @@ class TeamExtractor:
     COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
     COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
 
+    COORDS["loading_area"] = (slice(90, 155), slice(12, 74))
+
     COORDS["attacks"] = []
     COORDS["lives"] = []
     COORDS["inter"] = []
@@ -532,7 +534,7 @@ class TeamExtractor:
             turn = 1
         return turn
 
-    def goto_next(self, capture, coords, img, mask=None):
+    def goto_next(self, capture, coords, img, mask=None, skip_loading=False):
         frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
         skip = 60
         frame = self.get_frame(capture)
@@ -554,7 +556,14 @@ class TeamExtractor:
             closeness_score = 100 * close_pixels.sum() / mask_size
             threshold = 50 if mask is not None else 80
 
-            if (res < 1.2*res.min()).sum() <= 20 and closeness_score > threshold:
+            found = (closeness_score > threshold)
+            if skip_loading and found:
+                loading_area = frame[self.COORDS["loading_area"]]
+                white_pixels = (loading_area.mean(axis=2) > 245).sum()
+                if white_pixels > 1000:
+                    found = False
+
+            if found:
                 if skip > 1:
                     frame_nb -= skip
                     skip = (1 if skip < 10 else skip // 2)
@@ -570,7 +579,7 @@ class TeamExtractor:
         return self.goto_next(capture, self.COORDS["autoplay_area"], self.autoplay, self.autoplay_mask)
 
     def goto_next_turn(self, capture):
-        frame, frame_nb = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass)
+        frame, frame_nb = self.goto_next(capture, self.COORDS["hourglass_area"], self.hourglass, skip_loading=True)
         if frame is None:
             return None, -1
         return self.extract_turn(frame), frame_nb
