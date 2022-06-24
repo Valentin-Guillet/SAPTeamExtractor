@@ -1,3 +1,6 @@
 
 checks/
 imgs/
+
+*.txt
+*.md
