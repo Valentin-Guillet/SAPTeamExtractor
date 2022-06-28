@@ -553,13 +553,13 @@ class TeamExtractor:
             close_pixels = (np.abs(found_img.astype(np.int16) - img).mean(axis=2) < 25)
             if mask is not None:
                 close_pixels *= mask.astype('bool')
-                mask_size = (mask != 0).sum()
+                closeness_score = 100 * close_pixels.sum() / (mask != 0).sum()
+                contours = cv2.Canny(area, 100, 200) // 255
+                found = (closeness_score > 50) and (contours.sum() > 800)
             else:
-                mask_size = close_pixels.size
-            closeness_score = 100 * close_pixels.sum() / mask_size
-            threshold = 50 if mask is not None else 80
+                closeness_score = 100 * close_pixels.sum() / close_pixels.size
+                found = (closeness_score > 80)
 
-            found = (closeness_score > threshold)
             if skip_loading and found:
                 loading_area = frame[self.COORDS["loading_area"]]
                 white_pixels = (loading_area.mean(axis=2) > 245).sum()
