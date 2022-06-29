@@ -411,7 +411,7 @@ class TeamExtractor:
 
         return closeness_score, nb_peaks, contours_score
 
-    def extract_status(self, frame, pets, spots):
+    def extract_status(self, frame, spots):
         all_status = []
         for spot in range(5):
             if spot not in spots:
@@ -523,7 +523,7 @@ class TeamExtractor:
 
         spots = self.find_spots(frame)
         pets = self.extract_pets(frame, spots)
-        status = self.extract_status(frame, pets, spots)
+        status = self.extract_status(frame, spots)
         xps = self.extract_xps(frame, spots)
         stats = self.extract_stats(frame, spots)
         return pets, status, xps, stats
