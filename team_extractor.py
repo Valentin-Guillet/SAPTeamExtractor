@@ -208,7 +208,7 @@ class TeamExtractor:
     COORDS = {}
     COORDS["autoplay"] = (slice(58, 137), slice(674, 789))
     COORDS["hourglass"] = (slice(25, 56), slice(401, 423))
-    COORDS["turn"] = (slice(20, 60), slice(425, 470))
+    COORDS["turn"] = (slice(20, 60), slice(425, 480))
 
     COORDS["autoplay_area"] = extend(COORDS["autoplay"], 15)
     COORDS["hourglass_area"] = extend(COORDS["hourglass"], 15)
@@ -539,7 +539,7 @@ class TeamExtractor:
 
     def goto_next(self, capture, coords, img, mask=None, skip_loading=False):
         frame_nb = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
-        skip = 60
+        skip = 40
         frame = self.get_frame(capture)
         while True:
             if frame is None:
@@ -563,7 +563,7 @@ class TeamExtractor:
             if skip_loading and found:
                 loading_area = frame[self.COORDS["loading_area"]]
                 white_pixels = (loading_area.mean(axis=2) > 245).sum()
-                if white_pixels > 1000:
+                if white_pixels > 800:
                     found = False
 
             if found:
