@@ -18,6 +18,13 @@ except ModuleNotFoundError:
 
 PET_SIZE = 100
 
+HAT_COORDS = {
+    "Mosquito": [(slice(37, 60), slice(20, 55)), slice(0, 20)],
+    "Scorpion": [(slice(12, 60), slice(35, 70))],
+    "Kangaroo": [(slice(7, 35), slice(35))],
+    "Worm": [(slice(38, 50), slice(40))]
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -272,19 +279,9 @@ class TeamExtractor:
             self.whole_pets[pet_name] = ImgStruct(img.copy(), mask.copy())
 
             # Remove the head position from the mask to account for hats
-            # Mosquito and Scorpions have their hat very low, remove the precise area
-            if pet_name == "Mosquito":
-                img[37:60, 20:55] = 0
-                img[:20] = 0
-                mask[37:60, 20:55] = 0
-                mask[:20] = 0
-            elif pet_name == "Scorpion":
-                img[12:60, 35:70] = 0
-                mask[12:60, 35:70] = 0
-            else:
-                # Other pets just have the hat on top of them: mask the first rows
-                img = img[30:, :]
-                mask = mask[30:, :]
+            for hat_coords in HAT_COORDS.get(pet_name, [slice(30)]):
+                img[hat_coords] = 0
+                mask[hat_coords] = 0
 
             self.pets[pet_name] = ImgStruct(img, mask, trim=True)
 
