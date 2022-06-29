@@ -471,7 +471,7 @@ class TeamExtractor:
             res = 1000 * cv2.matchTemplate(frame, digit, cv2.TM_SQDIFF_NORMED, mask=mask)
 
             if res.min() < 100:
-                _, xs = np.where(res <= max(10, 3*res.min()))
+                _, xs = np.where(res <= max(50, 3*res.min()))
 
                 # Clustering: locations should be more than 5 pixels apart
                 xs.sort()
