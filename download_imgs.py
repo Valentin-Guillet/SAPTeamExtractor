@@ -40,6 +40,33 @@ def download_from_wiki(img_name, dst_file, img_size):
 
     # BGR to RGB
     img = img[..., (2, 1, 0, 3)]
+
+    if not dst_file.endswith('_alt.png'):
+        h, w = img.shape[:2]
+        mask = (img[:, :, 3] > 0).astype(np.uint8)
+
+        tmp_mask = np.zeros((h+2, w+2), np.uint8)
+        tmp_img = img.copy()[:, :, :3].astype(np.uint8)
+        cv2.floodFill(tmp_img, tmp_mask, (1, 1), None, (50, 50, 50), (250, 250, 250), flags=cv2.FLOODFILL_MASK_ONLY)
+        mask *= (1 - tmp_mask[1:-1, 1:-1])
+
+        hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)[..., 1]
+        mask *= (0 < hls) * (hls < 230)
+
+        tmp_mask = np.zeros((h+2, w+2), np.uint8)
+        cv2.floodFill(mask, tmp_mask, (30, 40), None, flags=cv2.FLOODFILL_MASK_ONLY)
+        mask *= (1 - tmp_mask[1:-1, 1:-1])
+
+        # Keep the black eyes
+        if "Zombie Cricket" in dst_file:
+            mask[105:135, 55:75] = 1
+
+        elif "Zombie Fly" in dst_file:
+            mask[105:150, 60:105] = 1
+            cv2.floodFill(mask, None, (50, 115), 1)
+
+        img *= mask[..., np.newaxis]
+
     img = cv2.resize(img, (img_size, img_size))
     img = Image.fromarray(img)
     img.save(dst_file)
