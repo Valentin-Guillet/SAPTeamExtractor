@@ -417,7 +417,7 @@ class TeamExtractor:
 
             pet_area = frame[self.COORDS["pets"][spot]]
             for status_name, status in self.status.items():
-                possible_sizes = list(range(25, 50, 5)) + [28]
+                possible_sizes = list(range(25, 50, 5)) + [28, 33]
                 for size in possible_sizes:
                     closeness_score, nb_peaks, contours_score = self.get_status_score(pet_area, status, (size, size))
 
