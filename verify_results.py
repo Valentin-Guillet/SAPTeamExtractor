@@ -4,20 +4,21 @@ import argparse
 import difflib
 import glob
 import os
+import re
 import subprocess
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('paths', nargs='+', help='Paths to directories containing checks')
-    parser.add_argument('-t', '--turns', action='store_true', help='Whether to validate turns')
+    parser.add_argument('-f', '--filter', type=str, help='Display all team containing the given string')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-d', '--diff', action='store_true', help='Whether to validate turns')
+    group.add_argument('-t', '--turns', action='store_true', help='Whether to validate turns')
     args = parser.parse_args()
 
-    if args.turns and len(args.paths) != 1:
-        print("usage: verify_turns.py [-h] -t path")
-        exit(1)
-    elif not args.turns and len(args.paths) != 2:
-        print("usage: verify_turns.py [-h] path1 path2")
+    if args.diff and len(args.paths) < 2:
+        parser.print_help()
         exit(1)
 
     return args
@@ -33,7 +34,7 @@ def get_all_files(path):
 
 def check_turns(file):
     with open(file, 'r') as f:
-        data = f.read().split('\n')
+        data = f.read().splitlines()
     turns = [int(line.split(' ', 1)[0]) for line in data if line]
 
     valid = True
@@ -45,7 +46,23 @@ def check_turns(file):
         print(os.path.basename(os.path.dirname(file)))
 
 
-def get_diff(path1, path2):
+def disp_teams(file, filter_str):
+    with open(file, 'r') as f:
+        teams = f.read().splitlines()
+
+    team_imgs = glob.glob(os.path.join(os.path.dirname(file), "team_*.png"))
+    team_imgs.sort(key=lambda file: int(os.path.basename(file)[5:-4]))
+
+    for team, img in zip(teams, team_imgs):
+        if not re.search(filter_str, team, re.I):
+            continue
+
+        print(team)
+        open_cmd = ["eog", img]
+        subprocess.run(open_cmd)
+
+
+def get_diff(path1, path2, filter_str):
     dirs = os.listdir(path1)
     differ = difflib.Differ()
     for directory in dirs:
@@ -89,6 +106,9 @@ def get_diff(path1, path2):
         new_imgs.sort(key=lambda file: int(os.path.basename(file)[5:-4]))
 
         for index, lines in changes:
+            if filter_str and not re.search(filter_str, ' '.join(lines), re.I):
+                continue
+
             print('\n'.join(lines))
             print()
             open_cmd = ["eog", new_imgs[index]]
@@ -102,5 +122,11 @@ if __name__ == '__main__':
             files = get_all_files(path)
             for file in files:
                 check_turns(file)
-    else:
-        get_diff(*args.paths)
+    elif args.diff:
+        get_diff(*args.paths, filter_str=args.filter)
+
+    elif args.filter:
+        for path in args.paths:
+            files = get_all_files(path)
+            for file in files:
+                disp_teams(file, args.filter)
