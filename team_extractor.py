@@ -35,13 +35,13 @@ def parse_args():
     parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes.")
     args = parser.parse_args()
 
-    if args.output is None:
-        args.output = os.path.dirname(args.path)
     if args.sync:
         args.nb_finders = 1
         args.nb_extractors = 1
     if os.path.isdir(args.path) and 'video.mp4' in os.listdir(args.path):
         args.path = os.path.join(args.path, 'video.mp4')
+    if args.output is None:
+        args.output = os.path.dirname(args.path)
 
     return args
 
