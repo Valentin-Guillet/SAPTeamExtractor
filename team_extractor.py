@@ -28,12 +28,24 @@ HAT_COORDS = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, help="Path to the video to process.")
+    parser.add_argument('path', nargs='*', type=str, help="Path to the video to process.")
     parser.add_argument('-o', '--output', type=str, help="Dir in which to save output. Default to the path of the video to process.")
     parser.add_argument('-f', '--nb_finders', type=int, default=2, help="Number of battle finders to run in parallel.")
     parser.add_argument('-e', '--nb_extractors', type=int, default=2, help="Number of team extractors to run in parallel.")
     parser.add_argument('--sync', action='store_true', help="Extract without using multiple processes.")
+    parser.add_argument('-d', '--debug', action='store_true', help="Debug option")
     args = parser.parse_args()
+
+    if args.debug:
+        if not args.path:
+            args.path = ['debug.txt']
+        return args
+
+    if len(args.path) == 0:
+        parser.error("the following arguments are required: path")
+    elif len(args.path) > 1:
+        parser.error("unrecognized arguments: " + ' '.join(args.path[1:]))
+    args.path = args.path[0]
 
     if args.sync:
         args.nb_finders = 1
@@ -152,6 +164,33 @@ def search_canny(img, init_min=400, init_max=800):
     slider_max.on_changed(update)
     plt.show()
 
+def debug(debug_list):
+    debug_codes = []
+    for s in debug_list:
+        if os.path.exists(s):
+            with open(s, 'r') as file:
+                lines = file.read().splitlines()
+                lines = filter(lambda line: line and not line.lstrip().startswith("#"), lines)
+                debug_codes.extend(lines)
+        else:
+            debug_codes.append(s)
+
+    for code in debug_codes:
+        if '=' in code:
+            video_id, code = code.split('=', 1)
+            frame_nbs = list(map(int, code.split(',')))
+        else:
+            video_id = code
+            frame_nbs = [0]
+
+        video_path = os.path.join('checks', video_id, 'video.mp4')
+        if not os.path.exists(video_path):
+            print("Invalid video file", video_path)
+            continue
+
+        team_extractor = TeamExtractor(video_path, None)
+        for frame_nb in frame_nbs:
+            team_extractor.debug(frame_nb)
 
 class ImgStruct:
     def __init__(self, img, mask, trim=False):
@@ -608,7 +647,7 @@ class TeamExtractor:
         self.logger.info(f"[WORKER {worker_id}] Done !")
         capture.release()
 
-    def save_team_img(self, frame, turn, pet_names, status_names, xps, stats, frame_nb):
+    def save_team_img(self, frame, turn, pet_names, status_names, xps, stats, frame_nb, save=True):
         team_img = frame[self.COORDS["team"]]
         shape = (int(1.8*team_img.shape[0]), team_img.shape[1], 3)
 
@@ -673,7 +712,10 @@ class TeamExtractor:
 
         axes[0].axis('off')
         axes[1].axis('off')
-        fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
+        if save:
+            fig.savefig(os.path.join(self.output_path, f"team_{frame_nb}.png"))
+        else:
+            plt.show()
 
     def save_team(self, frame, turn, pet_names, status_names, xps, stats, frame_nb):
         self.save_team_img(frame, turn, pet_names, status_names, xps, stats, frame_nb)
@@ -776,8 +818,32 @@ class TeamExtractor:
 
         self.write_teams()
 
+    def debug(self, frame_nb=None):
+        capture = cv2.VideoCapture(self.video_file)
+        print(os.path.dirname(self.video_file).ljust(35), frame_nb)
+        if frame_nb:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, frame_nb - 200)
+
+        turn, _ = self.goto_next_turn(capture)
+        frame, frame_nb = self.goto_next_battle(capture)
+        if frame is None:
+            return
+
+        self.logger.debug(f"[DEBUG] Frame {frame_nb}: battle found")
+        pets, status, xps, stats = self.extract_team(frame)
+        self.save_team_img(frame, turn, pets, status, xps, stats, frame_nb, save=False)
+        capture.release()
+
+
+def main(args):
+    if args.debug:
+        debug(args.path)
+        return
+
+    team_extractor = TeamExtractor(args.path, args.output)
+    team_extractor.run(nb_finders=args.nb_finders, nb_extractors=args.nb_extractors)
+
 
 if __name__ == '__main__':
     args = parse_args()
-    team_extractor = TeamExtractor(args.path, args.output)
-    team_extractor.run(nb_finders=args.nb_finders, nb_extractors=args.nb_extractors)
+    main(args)
