@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('paths', nargs='+', help='Paths to directories containing checks')
     parser.add_argument('-f', '--filter', type=str, help='Display all team containing the given string')
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('-d', '--diff', action='store_true', help='Whether to validate turns')
+    group.add_argument('-d', '--diff', action='store_true', help='Display differences between two directories')
     group.add_argument('-t', '--turns', action='store_true', help='Whether to validate turns')
     args = parser.parse_args()
 
@@ -57,7 +57,7 @@ def disp_teams(file, filter_str):
         if not re.search(filter_str, team, re.I):
             continue
 
-        print(team)
+        print(img.ljust(50), team)
         open_cmd = ["eog", img]
         subprocess.run(open_cmd)
 

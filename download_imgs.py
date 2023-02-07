@@ -13,10 +13,10 @@ from PIL import Image
 DATA_FILE = "assets/data.json"
 WRONG_COMMITS = ["Bus", "Boar", "Dromedary"]
 
-SAP_WIKI_URL = {"Dirty Rat": "9/92/DirtyRat_%28Token%29.png",
-                "Tabby Cat": "4/4c/TabbyCat.png",
-                "Zombie Cricket": "7/71/Cricket_%28Token%29.png",
-                "Zombie Fly": "3/39/Fly_%28Token%29.png",
+SAP_WIKI_URL = {"Dirty Rat": "3/38/Dirty_Rat.png",
+                "Tabby Cat": "b/b3/Tabby_Cat.png",
+                "Zombie Cricket": "2/24/Zombie_Cricket.png",
+                "Zombie Fly": "b/ba/Zombie_Fly.png",
                 "Garlic Armor": "c/cc/Garlic.png", }
 
 
@@ -135,6 +135,8 @@ def download_imgs(file_name, path, img_size):
 
 
 if __name__ == '__main__':
+    # TODO: argument to ignore existing images
+    # TODO: use async
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="Path to directory containing the github repository of noto-emoji, fxemoji and twemoji")
     parser.add_argument('-s', '--size', type=int, default=120, help="Size of the final png")
